@@ -65,11 +65,13 @@ static void draw_layer_icon(uint8_t layer) {
     // Clear top half (icon zone)
     qp_rect(lcd_surface, ICON_X, ICON_Y, ICON_X + ICON_SIZE - 1, ICON_Y + ICON_SIZE - 1, HSV_BLACK, true);
 
-    if (layer >= 8) {
+    // Auto-mouse layer reuses the manual _MOUSE icon (layer_icons[2]).
+    uint8_t icon_idx = (layer == 8) ? 2 : layer;
+    if (icon_idx >= 8) {
         return;
     }
 
-    qp_drawimage_recolor(lcd_surface, ICON_X, ICON_Y, layer_icons[layer], HSV_ICON_DIM, HSV_BLACK);
+    qp_drawimage_recolor(lcd_surface, ICON_X, ICON_Y, layer_icons[icon_idx], HSV_ICON_DIM, HSV_BLACK);
 }
 
 static void draw_mods_row(uint8_t mods) {

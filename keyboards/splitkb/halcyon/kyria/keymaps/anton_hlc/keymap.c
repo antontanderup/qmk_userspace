@@ -12,6 +12,7 @@ enum layers {
     _SYM,
     _FUN,
     _ADJUST,
+    _AUTO_MOUSE,
 };
 
 // Aliases for readability
@@ -61,7 +62,7 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
     [_MOUSE] = LAYOUT_split_3x6_5_hlc(
      _______, _______, _______, _______, _______, _______,                                       KC_AGAIN,    KC_PASTE,   KC_COPY,  KC_CUT,      KC_UNDO, _______,
      _______, _______, _______, _______, _______, _______,                                       MS_LEFT,     MS_DOWN,    MS_UP,    MS_RGHT,     _______, _______,
-     _______, _______, _______, MS_BTN2, MS_BTN1, _______, _______, _______, _______, _______,   _______,     _______,    _______,  _______,     _______, _______,
+     _______, _______, _______, _______, _______, _______, _______, _______, _______, _______,   _______,     _______,    _______,  _______,     _______, _______,
                                 _______, _______, _______, _______, _______, MS_BTN1, MS_BTN3, MS_BTN2, _______, _______,
      _______, _______, _______, _______, _______,                                                                _______, _______, _______, _______, _______
     ),
@@ -120,6 +121,19 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
                                 _______, _______, _______, _______, _______,    _______, _______, _______, _______, _______,
      _______, _______, _______, _______, _______,                                                                _______, _______, _______, _______, _______
     ),
+
+/*
+ * Auto Mouse Layer: only activated automatically by trackpad motion.
+ * Mostly transparent — the trackpad moves the cursor, the thumb cluster gives clicks,
+ * the left encoder scrolls (handled in encoder_update_user).
+ */
+    [_AUTO_MOUSE] = LAYOUT_split_3x6_5_hlc(
+     _______, _______, _______, _______, _______, _______,                                       _______, _______, _______, _______, _______, _______,
+     _______, _______, _______, _______, _______, _______,                                       _______, _______, _______, _______, _______, _______,
+     _______, _______, _______, MS_BTN2, MS_BTN1, _______, _______, _______, _______, _______,  _______, _______, _______, _______, _______, _______,
+                                _______, _______, _______, _______, _______,    _______, _______, _______, _______, _______,
+     _______, _______, _______, _______, _______,                                                                _______, _______, _______, _______, _______
+    ),
 };
 // clang-format on
 
@@ -129,12 +143,52 @@ void pointing_device_init_user(void) {
 }
 #endif
 
+#ifdef POINTING_DEVICE_COMBINED
+// Drag scroll: on the manual _MOUSE layer, convert trackpad cursor movement into
+// scroll-wheel events (no cursor motion). Also zeroes x/y so auto-mouse doesn't
+// fire and shadow _MOUSE with _AUTO_MOUSE.
+//
+// Higher divisor = slower scroll.
+#define SCROLL_DIVISOR_H 100.0f
+#define SCROLL_DIVISOR_V 100.0f
+
+static float scroll_accumulated_h = 0;
+static float scroll_accumulated_v = 0;
+
+report_mouse_t pointing_device_task_combined_user(report_mouse_t left_report, report_mouse_t right_report) {
+    if (IS_LAYER_ON(_MOUSE)) {
+        scroll_accumulated_h += (float)right_report.x / SCROLL_DIVISOR_H;
+        scroll_accumulated_v += -(float)right_report.y / SCROLL_DIVISOR_V;
+
+        right_report.h = (int8_t)scroll_accumulated_h;
+        right_report.v = (int8_t)scroll_accumulated_v;
+
+        scroll_accumulated_h -= (int8_t)scroll_accumulated_h;
+        scroll_accumulated_v -= (int8_t)scroll_accumulated_v;
+
+        right_report.x = 0;
+        right_report.y = 0;
+    }
+    return pointing_device_combine_reports(left_report, right_report);
+}
+
+// Clear partial scroll fractions when leaving _MOUSE so they don't leak into the next session.
+layer_state_t layer_state_set_user(layer_state_t state) {
+    if (!IS_LAYER_ON_STATE(state, _MOUSE)) {
+        scroll_accumulated_h = 0;
+        scroll_accumulated_v = 0;
+    }
+    return state;
+}
+#endif
+
 #ifdef ENCODER_ENABLE
 bool encoder_update_user(uint8_t index, bool clockwise) {
     if (index == 0) {
         // LEFT soldered encoder
         switch (get_highest_layer(layer_state | default_layer_state)) {
             case _MOUSE:
+            case _AUTO_MOUSE:
                 // Scroll wheel
                 if (clockwise) {
                     tap_code(MS_WHLD);
