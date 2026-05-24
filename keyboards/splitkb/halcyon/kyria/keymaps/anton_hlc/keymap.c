@@ -134,8 +134,15 @@ bool encoder_update_user(uint8_t index, bool clockwise) {
     if (index == 0) {
         // LEFT soldered encoder
         switch (get_highest_layer(layer_state | default_layer_state)) {
-            case _MEDIA:
             case _MOUSE:
+                // Scroll wheel
+                if (clockwise) {
+                    tap_code(MS_WHLD);
+                } else {
+                    tap_code(MS_WHLU);
+                }
+                break;
+            case _MEDIA:
             case _QWERTY:
             case _NUM:
             case _SYM:
