@@ -32,6 +32,25 @@ enum layers {
 #define EMOJI           LCTL(LGUI(KC_SPACE))
 #define CHANGE_LANGUAGE LGUI(KC_SPACE)
 
+// Tap dance: single tap = CAPS_WORD, double tap = CAPS_LOCK
+enum tap_dance_codes {
+    TD_CAPS_WORD_LOCK,
+};
+
+static void td_caps_finished(tap_dance_state_t *state, void *user_data) {
+    if (state->count == 1) {
+        // CW_TOGG can't go through tap_code16 (16-bit quantum keycode gets
+        // truncated by register_code), so call the caps_word API directly.
+        caps_word_on();
+    } else {
+        tap_code(KC_CAPS);
+    }
+}
+
+tap_dance_action_t tap_dance_actions[] = {
+    [TD_CAPS_WORD_LOCK] = ACTION_TAP_DANCE_FN(td_caps_finished),
+};
+
 // clang-format off
 const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
 /*
@@ -50,7 +69,7 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
  */
     [_NAV] = LAYOUT_split_3x6_5_hlc(
      _______, _______, _______, _______, _______, _______,                                     KC_REDO, KC_PASTE, KC_COPY, KC_CUT,  KC_UNDO,   _______,
-     _______, _______, _______, _______, _______, _______,                                     KC_LEFT, KC_DOWN,  KC_UP,   KC_RGHT, KC_CAPS,   _______,
+     _______, _______, _______, _______, _______, _______,                                     KC_LEFT, KC_DOWN,  KC_UP,   KC_RGHT, TD(TD_CAPS_WORD_LOCK), _______,
      _______, _______, _______, _______, _______, _______, _______, _______, _______, _______, KC_HOME, KC_PGDN,  KC_PGUP, KC_END,  KC_INSERT, _______,
                                 _______, _______, _______, _______, _______, _______, _______, _______, _______, _______,
      _______, _______, _______, _______, _______,                                                                _______, _______, _______, _______, _______
