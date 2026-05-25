@@ -117,7 +117,7 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
     [_ADJUST] = LAYOUT_split_3x6_5_hlc(
      _______, RGB_M_P, RGB_M_K,  RGB_M_R, RGB_M_SN, RGB_M_X,                                       _______, _______, _______, _______, _______, _______,
      _______, RGB_M_G, RGB_M_TW, _______, _______,  _______,                                       RM_TOGG, RM_SATU, RM_HUEU, RM_VALU, RM_NEXT, _______,
-     QK_BOOT, _______, _______,  _______, _______,  _______, _______, _______, _______, _______,   _______, RM_SATD, RM_HUED, RM_VALD, RM_PREV, _______,
+     QK_BOOT, _______, _______,  _______, _______,  _______, _______, _______, _______, _______,   _______, RM_SATD, RM_HUED, RM_VALD, RM_PREV, QK_BOOT,
                                 _______, _______, _______, _______, _______,    _______, _______, _______, _______, _______,
      _______, _______, _______, _______, _______,                                                                _______, _______, _______, _______, _______
     ),
@@ -145,26 +145,28 @@ void pointing_device_init_user(void) {
 
 #ifdef POINTING_DEVICE_COMBINED
 // Drag scroll: on the manual _MOUSE layer, convert trackpad cursor movement into
-// scroll-wheel events (no cursor motion). Also zeroes x/y so auto-mouse doesn't
-// fire and shadow _MOUSE with _AUTO_MOUSE.
+// scroll-wheel events (no cursor motion). Zeroing x/y also prevents auto-mouse
+// from firing and shadowing _MOUSE with _AUTO_MOUSE.
 //
-// Higher divisor = slower scroll.
-#define SCROLL_DIVISOR_H 100.0f
-#define SCROLL_DIVISOR_V 100.0f
+// Even with POINTING_DEVICE_HIRES_SCROLL_ENABLE, macOS often ignores the Resolution
+// Multiplier and treats each tick as a full wheel click. The accumulator+divisor
+// throttles us to a sane rate regardless. Higher divisor = slower scroll.
+#define SCROLL_DIVISOR_H 50.0f
+#define SCROLL_DIVISOR_V 50.0f
 
 static float scroll_accumulated_h = 0;
 static float scroll_accumulated_v = 0;
 
 report_mouse_t pointing_device_task_combined_user(report_mouse_t left_report, report_mouse_t right_report) {
     if (IS_LAYER_ON(_MOUSE)) {
-        scroll_accumulated_h += (float)right_report.x / SCROLL_DIVISOR_H;
+        scroll_accumulated_h +=  (float)right_report.x / SCROLL_DIVISOR_H;
         scroll_accumulated_v += -(float)right_report.y / SCROLL_DIVISOR_V;
 
-        right_report.h = (int8_t)scroll_accumulated_h;
-        right_report.v = (int8_t)scroll_accumulated_v;
+        right_report.h = (mouse_hv_report_t)scroll_accumulated_h;
+        right_report.v = (mouse_hv_report_t)scroll_accumulated_v;
 
-        scroll_accumulated_h -= (int8_t)scroll_accumulated_h;
-        scroll_accumulated_v -= (int8_t)scroll_accumulated_v;
+        scroll_accumulated_h -= (mouse_hv_report_t)scroll_accumulated_h;
+        scroll_accumulated_v -= (mouse_hv_report_t)scroll_accumulated_v;
 
         right_report.x = 0;
         right_report.y = 0;
@@ -172,7 +174,7 @@ report_mouse_t pointing_device_task_combined_user(report_mouse_t left_report, re
     return pointing_device_combine_reports(left_report, right_report);
 }
 
-// Clear partial scroll fractions when leaving _MOUSE so they don't leak into the next session.
+// Clear partial scroll fractions when leaving _MOUSE so they don't leak across sessions.
 layer_state_t layer_state_set_user(layer_state_t state) {
     if (!IS_LAYER_ON_STATE(state, _MOUSE)) {
         scroll_accumulated_h = 0;

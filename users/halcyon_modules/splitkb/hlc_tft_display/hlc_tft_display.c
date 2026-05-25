@@ -13,6 +13,7 @@
 #include "graphics/icons/data_object.qgf.h"
 #include "graphics/icons/functions.qgf.h"
 #include "graphics/icons/settings.qgf.h"
+#include "graphics/icons/trackpad_input.qgf.h"
 
 #include "graphics/icons/keyboard_control_key.qgf.h"
 #include "graphics/icons/keyboard_option_key.qgf.h"
@@ -52,7 +53,7 @@ painter_device_t lcd_surface;
 
 static uint8_t lcd_surface_fb[SURFACE_REQUIRED_BUFFER_BYTE_SIZE(135, 240, 16)];
 
-static painter_image_handle_t layer_icons[8] = {0};
+static painter_image_handle_t layer_icons[9] = {0};
 static painter_image_handle_t mod_icons[4]   = {0};  // Ctrl, Alt, GUI, Shift
 static painter_image_handle_t lock_icons[3]  = {0};  // Caps, Num, Scroll
 
@@ -65,13 +66,11 @@ static void draw_layer_icon(uint8_t layer) {
     // Clear top half (icon zone)
     qp_rect(lcd_surface, ICON_X, ICON_Y, ICON_X + ICON_SIZE - 1, ICON_Y + ICON_SIZE - 1, HSV_BLACK, true);
 
-    // Auto-mouse layer reuses the manual _MOUSE icon (layer_icons[2]).
-    uint8_t icon_idx = (layer == 8) ? 2 : layer;
-    if (icon_idx >= 8) {
+    if (layer >= 9) {
         return;
     }
 
-    qp_drawimage_recolor(lcd_surface, ICON_X, ICON_Y, layer_icons[icon_idx], HSV_ICON_DIM, HSV_BLACK);
+    qp_drawimage_recolor(lcd_surface, ICON_X, ICON_Y, layer_icons[layer], HSV_ICON_DIM, HSV_BLACK);
 }
 
 static void draw_mods_row(uint8_t mods) {
@@ -188,6 +187,7 @@ bool module_post_init_kb(void) {
     layer_icons[5] = qp_load_image_mem(gfx_data_object);
     layer_icons[6] = qp_load_image_mem(gfx_functions);
     layer_icons[7] = qp_load_image_mem(gfx_settings);
+    layer_icons[8] = qp_load_image_mem(gfx_trackpad_input);
 
     mod_icons[0]   = qp_load_image_mem(gfx_keyboard_control_key);
     mod_icons[1]   = qp_load_image_mem(gfx_keyboard_option_key);
