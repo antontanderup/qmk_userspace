@@ -37,3 +37,7 @@ uint8_t get_random_color_index(void);
 void update_display(void);
 void backlight_wakeup(void);
 void backlight_suspend(void);
+
+// Recolors one random non-black pixel of the QWERTY layer icon (splitkb logo)
+// to a random vivid color. No-op on any other layer. Cheap to call.
+void splitkb_logo_sparkle(void);

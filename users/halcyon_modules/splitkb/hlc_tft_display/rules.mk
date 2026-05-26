@@ -16,9 +16,11 @@ SRC += $(USER_PATH)/splitkb/hlc_tft_display/graphics/icons/splitkb.qgf.c \
 SRC += $(USER_PATH)/splitkb/hlc_tft_display/graphics/icons/keyboard_control_key.qgf.c \
        $(USER_PATH)/splitkb/hlc_tft_display/graphics/icons/keyboard_option_key.qgf.c \
        $(USER_PATH)/splitkb/hlc_tft_display/graphics/icons/keyboard_command_key.qgf.c \
-       $(USER_PATH)/splitkb/hlc_tft_display/graphics/icons/shift.qgf.c
+       $(USER_PATH)/splitkb/hlc_tft_display/graphics/icons/shift.qgf.c \
+       $(USER_PATH)/splitkb/hlc_tft_display/graphics/icons/diamond_mod.qgf.c
 
-# Lock-state icons
-SRC += $(USER_PATH)/splitkb/hlc_tft_display/graphics/icons/keyboard_capslock.qgf.c \
-       $(USER_PATH)/splitkb/hlc_tft_display/graphics/icons/pin.qgf.c \
-       $(USER_PATH)/splitkb/hlc_tft_display/graphics/icons/swap_vert.qgf.c
+# Lock-state icons (caps_word, caps_lock) + CG_TOGG state (apple/diamond)
+SRC += $(USER_PATH)/splitkb/hlc_tft_display/graphics/icons/uppercase.qgf.c \
+       $(USER_PATH)/splitkb/hlc_tft_display/graphics/icons/keyboard_capslock.qgf.c \
+       $(USER_PATH)/splitkb/hlc_tft_display/graphics/icons/apple_logo.qgf.c \
+       $(USER_PATH)/splitkb/hlc_tft_display/graphics/icons/diamond.qgf.c

@@ -26,8 +26,8 @@
 
 #define SURFACE_NUM_DEVICES 1
 
-// Need room for 8 layer icons + 4 modifier-key icons; default is 8.
-#define QUANTUM_PAINTER_NUM_IMAGES 16
+// Need room for layer + modifier + lock + caps_word icons; default is 8.
+#define QUANTUM_PAINTER_NUM_IMAGES 20
 
 // Backlight configuration
 #undef BACKLIGHT_PIN

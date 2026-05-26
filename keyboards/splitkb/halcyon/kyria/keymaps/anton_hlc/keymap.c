@@ -3,6 +3,11 @@
 
 #include QMK_KEYBOARD_H
 
+#ifdef HLC_TFT_DISPLAY
+// Defined in users/halcyon_modules/splitkb/hlc_tft_display/hlc_tft_display.c
+void splitkb_logo_sparkle(void);
+#endif
+
 enum layers {
     _QWERTY = 0,
     _NAV,
@@ -161,6 +166,15 @@ void pointing_device_init_user(void) {
     set_auto_mouse_enable(true);
 }
 #endif
+
+bool process_record_user(uint16_t keycode, keyrecord_t *record) {
+    if (record->event.pressed) {
+#ifdef HLC_TFT_DISPLAY
+        splitkb_logo_sparkle();
+#endif
+    }
+    return true;
+}
 
 #ifdef POINTING_DEVICE_COMBINED
 // Drag scroll: on the manual _MOUSE layer, convert trackpad cursor movement into
