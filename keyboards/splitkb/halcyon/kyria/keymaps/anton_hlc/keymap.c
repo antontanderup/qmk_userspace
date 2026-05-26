@@ -3,9 +3,47 @@
 
 #include QMK_KEYBOARD_H
 
+#ifdef OS_DETECTION_ENABLE
+#    include "os_detection.h"
+#    include "transactions.h"
+#    include "split_util.h"
+#endif
+
 #ifdef HLC_TFT_DISPLAY
 // Defined in users/halcyon_modules/splitkb/hlc_tft_display/hlc_tft_display.c
 void splitkb_logo_sparkle(void);
+#endif
+
+// LED index for the CG_TOGG key (matrix [8][2], k8C — right-half thumb cluster).
+#define LED_CG_TOGG 40
+
+#ifdef OS_DETECTION_ENABLE
+// Master detects OS and tracks the CG_TOGG swap state. Slave has no USB (so no
+// OS detection) and never processes CG_TOGG keypresses (so its keymap_config
+// stays at boot default). We sync both to the slave via a custom split
+// transaction so the indicator can run identically on either half.
+typedef struct {
+    uint8_t os;        // os_variant_t
+    uint8_t cg_swap;   // 0/1
+} user_sync_t;
+
+static volatile os_variant_t synced_host_os = OS_UNSURE;
+static volatile bool         synced_cg_swap = false;
+
+static void user_os_sync_slave_handler(uint8_t in_size, const void *in_data,
+                                       uint8_t out_size, void *out_data) {
+    if (in_size == sizeof(user_sync_t)) {
+        const user_sync_t *p = in_data;
+        synced_host_os = (os_variant_t)p->os;
+        synced_cg_swap = p->cg_swap != 0;
+    }
+}
+
+// Override the TFT module's weak getter so the display reads the split-synced
+// value (slave's keymap_config never sees CG_TOGG presses).
+bool hlc_cg_swap_state(void) {
+    return synced_cg_swap;
+}
 #endif
 
 enum layers {
@@ -167,6 +205,38 @@ void pointing_device_init_user(void) {
 }
 #endif
 
+#ifdef OS_DETECTION_ENABLE
+void keyboard_post_init_user(void) {
+    transaction_register_rpc(USER_OS_SYNC, user_os_sync_slave_handler);
+}
+
+void housekeeping_task_user(void) {
+    if (!is_keyboard_master()) {
+        return;
+    }
+    user_sync_t cur = {
+        .os      = (uint8_t)detected_host_os(),
+        .cg_swap = keymap_config.swap_lctl_lgui ? 1 : 0,
+    };
+    // Always reflect locally — independent of split transport connectivity —
+    // so master's indicator and TFT see the real state immediately.
+    synced_host_os = (os_variant_t)cur.os;
+    synced_cg_swap = cur.cg_swap != 0;
+
+    if (!is_transport_connected()) {
+        return;
+    }
+    static uint16_t last_sent_at = 0;
+    static user_sync_t last_sent = { .os = OS_UNSURE, .cg_swap = 0 };
+    if (cur.os != last_sent.os || cur.cg_swap != last_sent.cg_swap || timer_elapsed(last_sent_at) > 1000) {
+        if (transaction_rpc_send(USER_OS_SYNC, sizeof(cur), &cur)) {
+            last_sent = cur;
+            last_sent_at = timer_read();
+        }
+    }
+}
+#endif
+
 bool process_record_user(uint16_t keycode, keyrecord_t *record) {
     if (record->event.pressed) {
 #ifdef HLC_TFT_DISPLAY
@@ -175,6 +245,22 @@ bool process_record_user(uint16_t keycode, keyrecord_t *record) {
     }
     return true;
 }
+
+#if defined(RGB_MATRIX_ENABLE) && defined(OS_DETECTION_ENABLE)
+// Light CG_TOGG bright red when the host is macOS but the swap is off.
+// synced_host_os is populated on master via detected_host_os() and pushed to
+// slave via the USER_OS_SYNC split RPC (see housekeeping_task_user above) so
+// both halves render the same indicator.
+bool rgb_matrix_indicators_advanced_user(uint8_t led_min, uint8_t led_max) {
+    if (LED_CG_TOGG < led_min || LED_CG_TOGG >= led_max) {
+        return false;
+    }
+    if (synced_host_os == OS_MACOS && !synced_cg_swap) {
+        rgb_matrix_set_color(LED_CG_TOGG, RGB_RED);
+    }
+    return false;
+}
+#endif
 
 #ifdef POINTING_DEVICE_COMBINED
 // Drag scroll: on the manual _MOUSE layer, convert trackpad cursor movement into

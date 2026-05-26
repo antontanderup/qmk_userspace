@@ -220,12 +220,18 @@ static void draw_locks_row(led_t leds, bool caps_word, bool cg_swapped) {
     }
 }
 
+// CG_TOGG state for the display. Slave halves don't get keymap_config updates,
+// so the keymap can override this weak default to return a split-synced value.
+__attribute__((weak)) bool hlc_cg_swap_state(void) {
+    return keymap_config.swap_lctl_lgui;
+}
+
 void update_display(void) {
     uint8_t cur_layer     = get_highest_layer(layer_state | default_layer_state);
     uint8_t cur_mods      = get_mods() | get_oneshot_mods() | get_weak_mods();
     led_t   cur_leds      = host_keyboard_led_state();
     bool    cur_caps_word = is_caps_word_on();
-    bool    cur_cg_swap   = keymap_config.swap_lctl_lgui;
+    bool    cur_cg_swap   = hlc_cg_swap_state();
 
     bool cg_changed = (cur_cg_swap != last_cg_swap);
 

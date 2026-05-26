@@ -9,3 +9,11 @@
 #define POINTING_DEVICE_HIRES_SCROLL_ENABLE
 // Allow 16-bit wheel values so any large accumulated tick doesn't clip at ±127.
 #define WHEEL_EXTENDED_REPORT
+
+// OS detection: ARM Macs cause repeated re-detection that never settles inside
+// the debounce window. Lock in the first stable result.
+#define OS_DETECTION_SINGLE_REPORT
+#define OS_DETECTION_DEBOUNCE 500
+
+// Split sync of OS detection (master is the only side that sees USB traffic).
+#define SPLIT_TRANSACTION_IDS_USER USER_OS_SYNC
