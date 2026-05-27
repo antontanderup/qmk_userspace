@@ -36,9 +36,10 @@ void splitkb_logo_sparkle(void);
 #define LED_HRM_ALT_R 53  // L — MT(LALT, L)
 #define LED_HRM_GUI_R 54  // ; — MT(RGUI, ;)
 
-// _AUTO_MOUSE click keys, overlaid on base C and V positions (matrix row 2).
+// _AUTO_MOUSE click keys, overlaid on base C, V (row 2) and R (row 1).
 #define LED_AM_BTN2 15  // C — MS_BTN2 (right click)
 #define LED_AM_BTN1 14  // V — MS_BTN1 (left click)
+#define LED_AM_BTN3 26  // R — MS_BTN3 (middle click)
 
 #ifdef OS_DETECTION_ENABLE
 // Master detects OS and tracks the CG_TOGG swap state. Slave has no USB (so no
@@ -235,7 +236,7 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
  * the left encoder scrolls (handled in encoder_update_user).
  */
     [_AUTO_MOUSE] = LAYOUT_split_3x6_5_hlc(
-     _______, _______, _______, _______, _______, _______,                                       _______, _______, _______, _______, _______, _______,
+     _______, _______, _______, _______, MS_BTN3, _______,                                       _______, _______, _______, _______, _______, _______,
      _______, _______, _______, _______, _______, _______,                                       _______, _______, _______, _______, _______, _______,
      _______, _______, _______, MS_BTN2, MS_BTN1, _______, _______, _______, _______, _______,  _______, _______, _______, _______, _______, _______,
                                 _______, _______, _______, _______, _______,    _______, _______, _______, _______, _______,
@@ -333,6 +334,7 @@ bool rgb_matrix_indicators_advanced_user(uint8_t led_min, uint8_t led_max) {
     if (IS_LAYER_ON(_AUTO_MOUSE)) {
         paint_led(led_min, led_max, LED_AM_BTN1, RGB_PURPLE);
         paint_led(led_min, led_max, LED_AM_BTN2, RGB_PURPLE);
+        paint_led(led_min, led_max, LED_AM_BTN3, RGB_BLUE);
     }
 
 #    ifdef OS_DETECTION_ENABLE
