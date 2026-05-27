@@ -36,6 +36,10 @@ void splitkb_logo_sparkle(void);
 #define LED_HRM_ALT_R 53  // L — MT(LALT, L)
 #define LED_HRM_GUI_R 54  // ; — MT(RGUI, ;)
 
+// _AUTO_MOUSE click keys, overlaid on base C and V positions (matrix row 2).
+#define LED_AM_BTN2 15  // C — MS_BTN2 (right click)
+#define LED_AM_BTN1 14  // V — MS_BTN1 (left click)
+
 #ifdef OS_DETECTION_ENABLE
 // Master detects OS and tracks the CG_TOGG swap state. Slave has no USB (so no
 // OS detection) and never processes CG_TOGG keypresses (so its keymap_config
@@ -293,9 +297,9 @@ bool process_record_user(uint16_t keycode, keyrecord_t *record) {
 }
 
 #ifdef RGB_MATRIX_ENABLE
-static inline void paint_mod_led(uint8_t led_min, uint8_t led_max, uint8_t led) {
+static inline void paint_led(uint8_t led_min, uint8_t led_max, uint8_t led, uint8_t r, uint8_t g, uint8_t b) {
     if (led >= led_min && led < led_max) {
-        rgb_matrix_set_color(led, RGB_WHITE);
+        rgb_matrix_set_color(led, r, g, b);
     }
 }
 
@@ -319,9 +323,16 @@ bool rgb_matrix_indicators_advanced_user(uint8_t led_min, uint8_t led_max) {
     const uint8_t mods = get_mods() | get_weak_mods() | get_oneshot_mods();
     for (size_t i = 0; i < ARRAY_SIZE(hrm_leds); i++) {
         if (mods & hrm_leds[i].mask) {
-            paint_mod_led(led_min, led_max, hrm_leds[i].led_l);
-            paint_mod_led(led_min, led_max, hrm_leds[i].led_r);
+            paint_led(led_min, led_max, hrm_leds[i].led_l, RGB_WHITE);
+            paint_led(led_min, led_max, hrm_leds[i].led_r, RGB_WHITE);
         }
+    }
+
+    // _AUTO_MOUSE: highlight the click keys so they're findable when the
+    // trackpad has just yanked you onto the layer.
+    if (IS_LAYER_ON(_AUTO_MOUSE)) {
+        paint_led(led_min, led_max, LED_AM_BTN1, RGB_PURPLE);
+        paint_led(led_min, led_max, LED_AM_BTN2, RGB_PURPLE);
     }
 
 #    ifdef OS_DETECTION_ENABLE

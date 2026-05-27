@@ -118,6 +118,10 @@ LED indices derived from g_led_config (Kyria rev4 block in
 A=23 S=22 D=21 F=20   (matrix row 1)        ; J=51 K=52 L=53 ;=54   (matrix row 6)
 ```
 
+**_AUTO_MOUSE click keys** — `LED_AM_BTN1 = 14` (V, MS_BTN1), `LED_AM_BTN2 = 15`
+(C, MS_BTN2). Lit purple whenever `_AUTO_MOUSE` is active so the click keys
+are findable when the trackpad has just yanked you onto the layer.
+
 **CG_TOGG warning** — `LED_CG_TOGG = 40`. Bright red when
 `synced_host_os == OS_MACOS && !macos_mode()`. Matrix `[8][2]` = `k8C`, the
 right-hand thumb cluster outer slot where `CG_TOGG` is bound on base.
