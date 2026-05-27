@@ -132,6 +132,19 @@ brightness relationship (~10% luminance ratio) on both, different base hue:
   symbols/operators dim `(0x05, 0x12, 0x28)`.
 - `_SYM`: primary shifted glyphs saturated yellow `(0xFF, 0xE0, 0x10)`, border
   symbols dim `(0x1A, 0x16, 0x02)`.
+- `_MOUSE`: single-tier ocean green `(0x10, 0xC0, 0x80)` on the cursor keys
+  (MS_LEFT/DOWN/UP/RGHT at LEDs 50–53) and the right-thumb click cluster
+  (MS_BTN1/BTN3/BTN2 at LEDs 37–39). No gradient — the layer is mostly
+  transparent and these are the only bound keys.
+- `_NAV`: three tiers of purple on the right hand. Primary arrows + page-nav
+  (LEFT/DOWN/UP/RGHT, HOME/PGDN/PGUP/END) `(0xA0, 0x60, 0xFF)` light/lavender
+  (62% sat); secondary edit row + TD caps key (REDO/PASTE/COPY/CUT/UNDO,
+  TD_CAPS_WORD_LOCK) `(0x20, 0x00, 0x40)` mid pure purple (100% sat);
+  tertiary INSERT `(0x06, 0x00, 0x10)` barely-on pure purple. KC_MCTL painted
+  blue `(0x60, 0xB0, 0xFF)` separately so Mission Control reads as a distinct
+  system key, not a fourth gradient step. The TD caps key's secondary purple
+  is overridden red/blue when caps lock or caps word is on, since that
+  indicator paints later.
 - `_FUN`: three tiers of red, all pure (G=B=0). Only R varies — primary F1-F9
   `(0xFF, 0, 0)` full, secondary F10-F12 `(0x18, 0, 0)` ~9%, tertiary system
   keys (PrtSc/ScrLk/Pause/App) `(0x06, 0, 0)` ~2% (barely-on glow). Any non-zero G or B drifts the hue

@@ -382,6 +382,48 @@ bool rgb_matrix_indicators_advanced_user(uint8_t led_min, uint8_t led_max) {
         }
     }
 
+    // _MOUSE: ocean green on the cursor + click keys (the only parts of the
+    // layer that aren't transparent). Single tier — no need to differentiate.
+    if (IS_LAYER_ON(_MOUSE)) {
+        static const uint8_t mouse_leds[] = {
+            50, 51, 52, 53,  // MS_LEFT MS_DOWN MS_UP MS_RGHT
+            37, 38, 39,      // MS_BTN1 MS_BTN3 MS_BTN2 (right thumbs R21/R22/R23)
+        };
+        for (size_t i = 0; i < ARRAY_SIZE(mouse_leds); i++) {
+            paint_led(led_min, led_max, mouse_leds[i], 0x10, 0xC0, 0x80);
+        }
+    }
+
+    // _NAV: purple gradient on the right hand. Arrows primary (brightest,
+    // slightly desaturated/lavender), edit + page-nav row secondary (mid,
+    // more saturated), INSERT tertiary (barely-on, fully saturated).
+    // Mission Control (KC_MCTL) painted blue separately so it reads as a
+    // distinct system key rather than a fourth gradient step.
+    if (IS_LAYER_ON(_NAV)) {
+        static const uint8_t nav_primary_leds[] = {
+            50, 51, 52, 53,      // LEFT DOWN UP RIGHT
+            44, 45, 46, 47,      // HOME PGDN PGUP END
+        };
+        static const uint8_t nav_secondary_leds[] = {
+            56, 57, 58, 59, 60,  // REDO PASTE COPY CUT UNDO
+            54,                  // TD(CAPS_WORD_LOCK) — overridden red/blue when active
+        };
+        static const uint8_t nav_tertiary_leds[] = {
+            48,                  // INSERT
+        };
+        for (size_t i = 0; i < ARRAY_SIZE(nav_primary_leds); i++) {
+            paint_led(led_min, led_max, nav_primary_leds[i], 0xA0, 0x60, 0xFF);
+        }
+        for (size_t i = 0; i < ARRAY_SIZE(nav_secondary_leds); i++) {
+            paint_led(led_min, led_max, nav_secondary_leds[i], 0x20, 0x00, 0x40);
+        }
+        for (size_t i = 0; i < ARRAY_SIZE(nav_tertiary_leds); i++) {
+            paint_led(led_min, led_max, nav_tertiary_leds[i], 0x06, 0x00, 0x10);
+        }
+        // KC_MCTL — cool blue, outside the purple ramp.
+        paint_led(led_min, led_max, 61, 0x60, 0xB0, 0xFF);
+    }
+
     // _FUN: three tiers of red on the left hand. F1-F9 primary (brightest,
     // slightly warm), F10-F12 secondary (mid), and the system keys
     // (PrtSc/ScrLk/Pause/App) tertiary (dimmest). Brightness drops ~3x per
