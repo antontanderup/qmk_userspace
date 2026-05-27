@@ -30,6 +30,14 @@ typedef struct {
 static volatile os_variant_t synced_host_os = OS_UNSURE;
 static volatile bool         synced_cg_swap = false;
 
+// Keymap convention: CG_TOGG-on means the user is driving a Mac (so the
+// labeled-LCTL home-row key sends Cmd). Naming it makes downstream conditionals
+// read in domain terms ("host is mac but not in mac mode → warn") and gives
+// future OS-aware code one place to ask.
+static inline bool macos_mode(void) {
+    return synced_cg_swap;
+}
+
 static void user_os_sync_slave_handler(uint8_t in_size, const void *in_data,
                                        uint8_t out_size, void *out_data) {
     if (in_size == sizeof(user_sync_t)) {
@@ -41,8 +49,8 @@ static void user_os_sync_slave_handler(uint8_t in_size, const void *in_data,
 
 // Override the TFT module's weak getter so the display reads the split-synced
 // value (slave's keymap_config never sees CG_TOGG presses).
-bool hlc_cg_swap_state(void) {
-    return synced_cg_swap;
+bool hlc_macos_mode(void) {
+    return macos_mode();
 }
 #endif
 
@@ -266,7 +274,7 @@ bool rgb_matrix_indicators_advanced_user(uint8_t led_min, uint8_t led_max) {
     if (LED_CG_TOGG < led_min || LED_CG_TOGG >= led_max) {
         return false;
     }
-    if (synced_host_os == OS_MACOS && !synced_cg_swap) {
+    if (synced_host_os == OS_MACOS && !macos_mode()) {
         rgb_matrix_set_color(LED_CG_TOGG, RGB_RED);
     }
     return false;

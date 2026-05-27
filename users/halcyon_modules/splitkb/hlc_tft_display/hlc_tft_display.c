@@ -61,15 +61,15 @@ static painter_image_handle_t layer_icons[9] = {0};
 static painter_image_handle_t mod_icons[4]   = {0};  // Ctrl, Alt, GUI, Shift
 static painter_image_handle_t diamond_mod_icon = NULL; // Diamond (30x30) for the mod row's GUI position when CG_TOGG is OFF
 static painter_image_handle_t lock_icons[2]  = {0};  // Caps Word, Caps Lock
-static painter_image_handle_t cg_icon_swap   = NULL; // Apple   (CG swap on)
-static painter_image_handle_t cg_icon_nrm    = NULL; // Diamond (CG swap off)
+static painter_image_handle_t mac_icon       = NULL; // Apple   (shown in mac mode)
+static painter_image_handle_t nonmac_icon    = NULL; // Diamond (shown when not in mac mode)
 
 // Sentinel initial values force first draw
 static uint8_t last_layer    = 0xFF;
 static uint8_t last_mods     = 0xFF;
 static led_t   last_led_state    = {.raw = 0xFF};
 static bool    last_caps_word    = true;  // not 0 → forces first draw
-static bool    last_cg_swap      = true;  // not equal to initial false → forces first draw
+static bool    last_macos_mode   = true;  // not equal to initial false → forces first draw
 
 // Ring buffer of accumulated sparkles on the splitkb (QWERTY) icon. Replayed
 // every time draw_layer_icon redraws layer 0 so sparkles survive layer switches.
@@ -134,30 +134,29 @@ void splitkb_logo_sparkle(void) {
     qp_setpixel(lcd_surface, x, y, h, s, v);
 }
 
-static void draw_mods_row(uint8_t mods, bool cg_swapped) {
+static void draw_mods_row(uint8_t mods, bool macos_mode) {
     // Clear mod band
     qp_rect(lcd_surface, 0, MOD_SLOT_Y, LCD_WIDTH - 1, MOD_SLOT_Y + MOD_SLOT_H - 1, HSV_BLACK, true);
 
     // 4 slots, 33 px wide, with 1 px gaps at x=33,67,101 (total = 4*33 + 3 = 135).
     static const int    slot_left[4]  = {0, 34, 68, 102};
     static const int    slot_width[4] = {33, 33, 33, 33};
-    // Masks flip Ctrl/GUI when CG_TOGG is on so the lit slot matches what the host sees.
+    // In mac mode the host has Ctrl/GUI swapped, so flip the masks to match what
+    // each finger actually sends.
     const uint8_t masks[4] = {
-        cg_swapped ? MOD_MASK_CTRL : MOD_MASK_GUI,
+        macos_mode ? MOD_MASK_CTRL : MOD_MASK_GUI,
         MOD_MASK_ALT,
-        cg_swapped ? MOD_MASK_GUI  : MOD_MASK_CTRL,
+        macos_mode ? MOD_MASK_GUI  : MOD_MASK_CTRL,
         MOD_MASK_SHIFT,
     };
 
-    // Icons show what each finger does on the host. In mac mode (swap on) the
-    // Cmd-producing slot shows ⌘; in default mode the GUI-producing slot shows
-    // ◆ (a neutral "GUI key" glyph since it's not Apple-Cmd anymore).
-    // Swap OFF: A=GUI(◆), S=Alt, D=Ctrl,    F=Shift -> ◆ ⌥ ⌃ ⇧
-    // Swap ON : A=Ctrl,   S=Alt, D=Cmd(⌘), F=Shift -> ⌃ ⌥ ⌘ ⇧
+    // Icons show what each finger does on the host.
+    // Mac mode  : A=Ctrl,   S=Alt, D=Cmd(⌘), F=Shift -> ⌃ ⌥ ⌘ ⇧
+    // Non-mac   : A=GUI(◆), S=Alt, D=Ctrl,    F=Shift -> ◆ ⌥ ⌃ ⇧
     painter_image_handle_t icons[4] = {
-        cg_swapped ? mod_icons[0]    /*Ctrl*/ : diamond_mod_icon /*◆*/,
+        macos_mode ? mod_icons[0]    /*Ctrl*/ : diamond_mod_icon /*◆*/,
         mod_icons[1] /*Alt*/,
-        cg_swapped ? mod_icons[2]    /*Cmd*/  : mod_icons[0]     /*Ctrl*/,
+        macos_mode ? mod_icons[2]    /*Cmd*/  : mod_icons[0]     /*Ctrl*/,
         mod_icons[3] /*Shift*/,
     };
 
@@ -184,7 +183,7 @@ static void draw_mods_row(uint8_t mods, bool cg_swapped) {
     }
 }
 
-static void draw_locks_row(led_t leds, bool caps_word, bool cg_swapped) {
+static void draw_locks_row(led_t leds, bool caps_word, bool macos_mode) {
     // Clear lock band
     qp_rect(lcd_surface, 0, LOCK_SLOT_Y, LCD_WIDTH - 1, LOCK_SLOT_Y + LOCK_SLOT_H - 1, HSV_BLACK, true);
 
@@ -192,12 +191,12 @@ static void draw_locks_row(led_t leds, bool caps_word, bool cg_swapped) {
     static const int slot_left[3]  = {0, 45, 90};
     static const int slot_width[3] = {44, 44, 45};
 
-    // Slot 2 (CG_TOGG): apple icon when swapped, diamond when not. The icon
-    // itself conveys the state; the slot never lights up (no white background).
+    // Slot 2 (CG_TOGG): apple in mac mode, diamond otherwise. The icon itself
+    // conveys the state; the slot never lights up (no white background).
     const bool active[3] = { caps_word, leds.caps_lock, false };
     painter_image_handle_t icons[3] = {
         lock_icons[0], lock_icons[1],
-        cg_swapped ? cg_icon_swap : cg_icon_nrm,
+        macos_mode ? mac_icon : nonmac_icon,
     };
 
     const int icon_y = LOCK_SLOT_Y + (LOCK_SLOT_H - LOCK_ICON_SIZE) / 2;
@@ -220,35 +219,38 @@ static void draw_locks_row(led_t leds, bool caps_word, bool cg_swapped) {
     }
 }
 
-// CG_TOGG state for the display. Slave halves don't get keymap_config updates,
-// so the keymap can override this weak default to return a split-synced value.
-__attribute__((weak)) bool hlc_cg_swap_state(void) {
+// Whether the host is being driven in "mac mode" (Cmd/Ctrl swapped on the
+// labeled-LCTL home-row key). This hardware ships an Apple icon for the swap-on
+// state, so the display interprets CG_TOGG-on as Mac mode by default. Slave
+// halves don't get keymap_config updates, so the keymap can override this weak
+// default to return a split-synced value.
+__attribute__((weak)) bool hlc_macos_mode(void) {
     return keymap_config.swap_lctl_lgui;
 }
 
 void update_display(void) {
-    uint8_t cur_layer     = get_highest_layer(layer_state | default_layer_state);
-    uint8_t cur_mods      = get_mods() | get_oneshot_mods() | get_weak_mods();
-    led_t   cur_leds      = host_keyboard_led_state();
-    bool    cur_caps_word = is_caps_word_on();
-    bool    cur_cg_swap   = hlc_cg_swap_state();
+    uint8_t cur_layer      = get_highest_layer(layer_state | default_layer_state);
+    uint8_t cur_mods       = get_mods() | get_oneshot_mods() | get_weak_mods();
+    led_t   cur_leds       = host_keyboard_led_state();
+    bool    cur_caps_word  = is_caps_word_on();
+    bool    cur_macos_mode = hlc_macos_mode();
 
-    bool cg_changed = (cur_cg_swap != last_cg_swap);
+    bool mac_changed = (cur_macos_mode != last_macos_mode);
 
     if (cur_layer != last_layer) {
         draw_layer_icon(cur_layer);
         last_layer = cur_layer;
     }
-    if (cur_mods != last_mods || cg_changed) {
-        draw_mods_row(cur_mods, cur_cg_swap);
+    if (cur_mods != last_mods || mac_changed) {
+        draw_mods_row(cur_mods, cur_macos_mode);
         last_mods = cur_mods;
     }
-    if (cur_leds.raw != last_led_state.raw || cur_caps_word != last_caps_word || cg_changed) {
-        draw_locks_row(cur_leds, cur_caps_word, cur_cg_swap);
+    if (cur_leds.raw != last_led_state.raw || cur_caps_word != last_caps_word || mac_changed) {
+        draw_locks_row(cur_leds, cur_caps_word, cur_macos_mode);
         last_led_state = cur_leds;
         last_caps_word = cur_caps_word;
     }
-    last_cg_swap = cur_cg_swap;
+    last_macos_mode = cur_macos_mode;
 }
 
 // Called from halcyon.c
@@ -297,8 +299,8 @@ bool module_post_init_kb(void) {
 
     lock_icons[0]  = qp_load_image_mem(gfx_uppercase);
     lock_icons[1]  = qp_load_image_mem(gfx_keyboard_capslock);
-    cg_icon_swap   = qp_load_image_mem(gfx_apple_logo);
-    cg_icon_nrm    = qp_load_image_mem(gfx_diamond);
+    mac_icon       = qp_load_image_mem(gfx_apple_logo);
+    nonmac_icon    = qp_load_image_mem(gfx_diamond);
 
     qp_surface_draw(lcd_surface, lcd, 0, 0, 0);
     qp_flush(lcd);
