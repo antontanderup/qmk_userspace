@@ -382,6 +382,22 @@ bool rgb_matrix_indicators_advanced_user(uint8_t led_min, uint8_t led_max) {
         }
     }
 
+    // _MEDIA: full chaos. Each bound key cycles through every hue at full
+    // saturation, with a prime-offset phase so all 7 LEDs show different
+    // colors at any given moment. ~3.8s full cycle (256 hues * 15ms tick).
+    if (IS_LAYER_ON(_MEDIA)) {
+        static const uint8_t media_leds[] = {
+            50, 51, 52, 53,  // PREV VOL- VOL+ NEXT
+            37, 38, 39,      // STOP PLAY/PAUSE MUTE (right thumbs)
+        };
+        const uint8_t base_hue = (uint8_t)(timer_read32() / 15);
+        for (size_t i = 0; i < ARRAY_SIZE(media_leds); i++) {
+            HSV hsv = { .h = (uint8_t)(base_hue + i * 37), .s = 0xFF, .v = 0xE0 };
+            RGB rgb = hsv_to_rgb(hsv);
+            paint_led(led_min, led_max, media_leds[i], rgb.r, rgb.g, rgb.b);
+        }
+    }
+
     // _MOUSE: ocean green on the cursor + click keys (the only parts of the
     // layer that aren't transparent). Single tier — no need to differentiate.
     if (IS_LAYER_ON(_MOUSE)) {

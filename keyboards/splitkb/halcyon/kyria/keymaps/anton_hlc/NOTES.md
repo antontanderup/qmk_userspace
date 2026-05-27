@@ -132,6 +132,12 @@ brightness relationship (~10% luminance ratio) on both, different base hue:
   symbols/operators dim `(0x05, 0x12, 0x28)`.
 - `_SYM`: primary shifted glyphs saturated yellow `(0xFF, 0xE0, 0x10)`, border
   symbols dim `(0x1A, 0x16, 0x02)`.
+- `_MEDIA`: chaotic animated rainbow. Each of the 7 bound keys (PREV/VOL-/
+  VOL+/NEXT on LEDs 50–53, STOP/PLAY/MUTE on LEDs 37–39) cycles through all
+  256 hues at full saturation, V=0xE0. Phase offset is `i * 37` (prime,
+  coprime with 256) so all LEDs show distinct colors at any moment. Cycle
+  speed: 15ms per hue step → ~3.8s full revolution. Driven by `timer_read32`
+  and QMK's `hsv_to_rgb()`.
 - `_MOUSE`: single-tier ocean green `(0x10, 0xC0, 0x80)` on the cursor keys
   (MS_LEFT/DOWN/UP/RGHT at LEDs 50–53) and the right-thumb click cluster
   (MS_BTN1/BTN3/BTN2 at LEDs 37–39). No gradient — the layer is mostly
