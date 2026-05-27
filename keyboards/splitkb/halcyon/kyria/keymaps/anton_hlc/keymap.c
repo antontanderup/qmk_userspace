@@ -14,8 +14,11 @@
 void splitkb_logo_sparkle(void);
 #endif
 
-// LED index for the CG_TOGG key (matrix [8][2], k8C — right-half thumb cluster).
-#define LED_CG_TOGG 40
+// LED indices, derived from g_led_config in users/halcyon_modules/splitkb/halcyon.c.
+// CG_TOGG key (matrix [8][2], k8C — right-half thumb cluster).
+#define LED_CG_TOGG        40
+// Caps Word / Caps Lock TD key (matrix [6][5], R11 — right-half row 2, fifth from left).
+#define LED_CAPS_WORD_LOCK 54
 
 #ifdef OS_DETECTION_ENABLE
 // Master detects OS and tracks the CG_TOGG swap state. Slave has no USB (so no
@@ -265,17 +268,28 @@ bool process_record_user(uint16_t keycode, keyrecord_t *record) {
     return true;
 }
 
-#if defined(RGB_MATRIX_ENABLE) && defined(OS_DETECTION_ENABLE)
-// Light CG_TOGG bright red when the host is macOS but the swap is off.
-// synced_host_os is populated on master via detected_host_os() and pushed to
-// slave via the USER_OS_SYNC split RPC (see housekeeping_task_user above) so
-// both halves render the same indicator.
+#ifdef RGB_MATRIX_ENABLE
+// Each LED is gated independently so the slice [led_min, led_max) on either
+// half only paints the LEDs it actually owns.
 bool rgb_matrix_indicators_advanced_user(uint8_t led_min, uint8_t led_max) {
-    if (LED_CG_TOGG < led_min || LED_CG_TOGG >= led_max) {
-        return false;
+#    ifdef OS_DETECTION_ENABLE
+    // CG_TOGG: bright red when host is macOS but swap is off (i.e. user forgot
+    // to enable mac mode). synced_* are populated on master and pushed to slave
+    // via the USER_OS_SYNC split RPC, so both halves render identically.
+    if (LED_CG_TOGG >= led_min && LED_CG_TOGG < led_max) {
+        if (synced_host_os == OS_MACOS && !macos_mode()) {
+            rgb_matrix_set_color(LED_CG_TOGG, RGB_RED);
+        }
     }
-    if (synced_host_os == OS_MACOS && !macos_mode()) {
-        rgb_matrix_set_color(LED_CG_TOGG, RGB_RED);
+#    endif
+    // Caps Lock / Caps Word state on the TD key. Caps Lock wins if both are
+    // somehow on (can't actually happen with our tap dance, but defensive).
+    if (LED_CAPS_WORD_LOCK >= led_min && LED_CAPS_WORD_LOCK < led_max) {
+        if (host_keyboard_led_state().caps_lock) {
+            rgb_matrix_set_color(LED_CAPS_WORD_LOCK, RGB_RED);
+        } else if (is_caps_word_on()) {
+            rgb_matrix_set_color(LED_CAPS_WORD_LOCK, RGB_BLUE);
+        }
     }
     return false;
 }

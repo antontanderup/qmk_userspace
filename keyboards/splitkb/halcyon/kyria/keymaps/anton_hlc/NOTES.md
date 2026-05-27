@@ -91,19 +91,20 @@ treats CG-swap-on as Mac mode since it ships Apple/Cmd icons). This keymap
 overrides it to return `macos_mode()` so the TFT mod row shows correct icons
 even when running on the slave (USB on right side).
 
-## LED indicator: macOS warning
+## LED indicators
 
-In `rgb_matrix_indicators_advanced_user`:
+In `rgb_matrix_indicators_advanced_user`, two independent per-LED checks:
 
-```c
-if (synced_host_os == OS_MACOS && !synced_cg_swap) {
-    rgb_matrix_set_color(LED_CG_TOGG, RGB_RED);
-}
-```
+- **`LED_CG_TOGG = 40`** — bright red when `synced_host_os == OS_MACOS && !macos_mode()`.
+  Derived from g_led_config row 8 col 2 (matrix `[8][2]` = `k8C`), the
+  right-hand thumb cluster outer slot where `CG_TOGG` is bound on base.
+- **`LED_CAPS_WORD_LOCK = 54`** — red when caps lock is on, blue when caps word
+  is on. Derived from g_led_config row 6 col 5 (matrix `[6][5]` = `R11`), the
+  fifth key from the left on the right-hand second row, where the
+  `TD(TD_CAPS_WORD_LOCK)` tap dance lives on `_NAV`.
 
-`LED_CG_TOGG = 40` — derived from g_led_config row 8 col 2 (matrix position
-`[8][2]` = `k8C` in `LAYOUT_split_3x6_5_hlc`, which is where `CG_TOGG` is
-bound on the base layer). The right-hand thumb cluster outer slot.
+Each LED is range-gated independently against `[led_min, led_max)` so either
+half only paints LEDs it owns.
 
 OS detection needs:
 - `OS_DETECTION_ENABLE = yes` in rules.mk
