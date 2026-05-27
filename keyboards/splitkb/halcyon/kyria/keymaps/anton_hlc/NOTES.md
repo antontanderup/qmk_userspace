@@ -124,6 +124,24 @@ layer. `LED_AM_BTN1 = 14` (V, MS_BTN1) and `LED_AM_BTN2 = 15` (C, MS_BTN2)
 purple; `LED_AM_BTN3 = 26` (R, MS_BTN3) blue to distinguish it as the
 less-frequent middle click.
 
+**_NUM / _SYM layer tints** — when either layer is on, the left-hand cluster
+is painted via two inline `static const` LED arrays per layer. Same two-tier
+brightness relationship (~10% luminance ratio) on both, different base hue:
+
+- `_NUM`: primary digits cool light blue `(0x60, 0xB0, 0xFF)`, border
+  symbols/operators dim `(0x05, 0x12, 0x28)`.
+- `_SYM`: primary shifted glyphs saturated yellow `(0xFF, 0xE0, 0x10)`, border
+  symbols dim `(0x1A, 0x16, 0x02)`.
+- `_FUN`: three tiers of red, all pure (G=B=0). Only R varies — primary F1-F9
+  `(0xFF, 0, 0)` full, secondary F10-F12 `(0x18, 0, 0)` ~9%, tertiary system
+  keys (PrtSc/ScrLk/Pause/App) `(0x06, 0, 0)` ~2% (barely-on glow). Any non-zero G or B drifts the hue
+  toward pink or orange on this hardware, even when G==B — so we keep the
+  whole layer monochromatic and use brightness alone to tier the keys.
+
+Border keys are barely-on by design — they read as a quiet frame rather than
+competing with the primary cluster for attention. Keeps numbers
+visually distinct from the operator border so muscle memory builds faster.
+
 **CG_TOGG warning** — `LED_CG_TOGG = 40`. Bright red when
 `synced_host_os == OS_MACOS && !macos_mode()`. Matrix `[8][2]` = `k8C`, the
 right-hand thumb cluster outer slot where `CG_TOGG` is bound on base.

@@ -334,7 +334,86 @@ bool rgb_matrix_indicators_advanced_user(uint8_t led_min, uint8_t led_max) {
     if (IS_LAYER_ON(_AUTO_MOUSE)) {
         paint_led(led_min, led_max, LED_AM_BTN1, RGB_PURPLE);
         paint_led(led_min, led_max, LED_AM_BTN2, RGB_PURPLE);
-        paint_led(led_min, led_max, LED_AM_BTN3, RGB_BLUE);
+        paint_led(led_min, led_max, LED_AM_BTN3, RGB_PURPLE);
+    }
+
+    // _NUM: paint the left-hand numpad. Digits in a cool, light blue;
+    // surrounding symbols/operators in the same hue but more saturated so
+    // they read as a distinct group at a glance.
+    if (IS_LAYER_ON(_NUM)) {
+        static const uint8_t num_leds[] = {
+            28, 27, 26,  // 7 8 9
+            22, 21, 20,  // 4 5 6
+            16, 15, 14,  // 1 2 3
+            7,           // 0
+        };
+        static const uint8_t sym_leds[] = {
+            29, 25,      // [ ]
+            23, 19,      // ; =
+            17, 13,      // grave, backslash
+            8,  6,       // . -
+        };
+        for (size_t i = 0; i < ARRAY_SIZE(num_leds); i++) {
+            paint_led(led_min, led_max, num_leds[i], 0x60, 0xB0, 0xFF);
+        }
+        for (size_t i = 0; i < ARRAY_SIZE(sym_leds); i++) {
+            paint_led(led_min, led_max, sym_leds[i], 0x05, 0x12, 0x28);
+        }
+    }
+
+    if (IS_LAYER_ON(_SYM)) {
+        static const uint8_t num_leds[] = {
+            28, 27, 26,  // & * (
+            22, 21, 20,  // $ % ^
+            16, 15, 14,  // ! @ #
+            7,           // )
+        };
+        static const uint8_t sym_leds[] = {
+            29, 25,      // { }
+            23, 19,      // : +
+            17, 13,      // ~ |
+            8,  6,       // ( _
+        };
+        for (size_t i = 0; i < ARRAY_SIZE(num_leds); i++) {
+            paint_led(led_min, led_max, num_leds[i], 0xFF, 0xE0, 0x10);
+        }
+        for (size_t i = 0; i < ARRAY_SIZE(sym_leds); i++) {
+            paint_led(led_min, led_max, sym_leds[i], 0x1A, 0x16, 0x02);
+        }
+    }
+
+    // _FUN: three tiers of red on the left hand. F1-F9 primary (brightest,
+    // slightly warm), F10-F12 secondary (mid), and the system keys
+    // (PrtSc/ScrLk/Pause/App) tertiary (dimmest). Brightness drops ~3x per
+    // tier; saturation climbs as brightness falls.
+    if (IS_LAYER_ON(_FUN)) {
+        static const uint8_t fun_primary_leds[] = {
+            28, 27, 26,  // F7 F8 F9
+            22, 21, 20,  // F4 F5 F6
+            16, 15, 14,  // F1 F2 F3
+        };
+        static const uint8_t fun_secondary_leds[] = {
+            29,          // F12
+            23,          // F11
+            17,          // F10
+        };
+        static const uint8_t fun_tertiary_leds[] = {
+            25,          // KC_PRINT_SCREEN
+            19,          // KC_SCROLL_LOCK
+            13,          // KC_PAUSE
+            8,           // KC_APPLICATION (thumb)
+        };
+        // All tiers are pure red (G=B=0) — only the R channel varies. Any G or
+        // B value at all drifts the hue toward pink/orange on this hardware.
+        for (size_t i = 0; i < ARRAY_SIZE(fun_primary_leds); i++) {
+            paint_led(led_min, led_max, fun_primary_leds[i], 0xFF, 0x00, 0x00);
+        }
+        for (size_t i = 0; i < ARRAY_SIZE(fun_secondary_leds); i++) {
+            paint_led(led_min, led_max, fun_secondary_leds[i], 0x18, 0x00, 0x00);
+        }
+        for (size_t i = 0; i < ARRAY_SIZE(fun_tertiary_leds); i++) {
+            paint_led(led_min, led_max, fun_tertiary_leds[i], 0x06, 0x00, 0x00);
+        }
     }
 
 #    ifdef OS_DETECTION_ENABLE
