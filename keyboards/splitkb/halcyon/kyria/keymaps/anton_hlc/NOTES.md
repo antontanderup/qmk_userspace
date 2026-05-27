@@ -93,18 +93,40 @@ even when running on the slave (USB on right side).
 
 ## LED indicators
 
-In `rgb_matrix_indicators_advanced_user`, two independent per-LED checks:
+`rgb_matrix_indicators_advanced_user` paints three groups, each LED gated
+against `[led_min, led_max)` so either half only paints LEDs it owns.
 
-- **`LED_CG_TOGG = 40`** — bright red when `synced_host_os == OS_MACOS && !macos_mode()`.
-  Derived from g_led_config row 8 col 2 (matrix `[8][2]` = `k8C`), the
-  right-hand thumb cluster outer slot where `CG_TOGG` is bound on base.
-- **`LED_CAPS_WORD_LOCK = 54`** — red when caps lock is on, blue when caps word
-  is on. Derived from g_led_config row 6 col 5 (matrix `[6][5]` = `R11`), the
-  fifth key from the left on the right-hand second row, where the
-  `TD(TD_CAPS_WORD_LOCK)` tap dance lives on `_NAV`.
+**Held home-row mods** — all lit white. Painted first so caps overrides on
+conflict at LED 54.
 
-Each LED is range-gated independently against `[led_min, led_max)` so either
-half only paints LEDs it owns.
+Driven by a small `hrm_leds[]` table mapping each `MOD_MASK_*` to its two
+physical LED bindings; the indicator loops and paints both LEDs of any held
+mod. The CTRL and GUI rows are mac-mode-aware: QMK applies the CG swap inside
+`mod_config()` *before* the mod is registered (see
+`quantum/keycode_config.c`), so `get_mods()` returns post-swap bits. In mac
+mode, pressing D registers MOD_BIT(LGUI) and pressing A registers
+MOD_BIT(LCTL); the table flips the LED targets so the lit keys are the ones
+the user actually pressed, not the opposite pair.
+
+Z is also `MT(LCTL, Z)` but deliberately uncolored — it's a convenience bind
+for one-handed copy/paste and shouldn't visually compete with the home-row.
+
+LED indices derived from g_led_config (Kyria rev4 block in
+`users/halcyon_modules/splitkb/halcyon.c`):
+
+```
+A=23 S=22 D=21 F=20   (matrix row 1)        ; J=51 K=52 L=53 ;=54   (matrix row 6)
+```
+
+**CG_TOGG warning** — `LED_CG_TOGG = 40`. Bright red when
+`synced_host_os == OS_MACOS && !macos_mode()`. Matrix `[8][2]` = `k8C`, the
+right-hand thumb cluster outer slot where `CG_TOGG` is bound on base.
+
+**Caps state on the TD key** — `LED_CAPS_WORD_LOCK = 54`. Red when caps lock,
+blue when caps word. Matrix `[6][5]` = `R11`, the fifth key from the left on
+the right-hand second row, where `TD(TD_CAPS_WORD_LOCK)` lives on `_NAV`.
+Painted last so it overrides any held-mod tint on the same LED (`;` is RGUI
+and shares LED 54).
 
 OS detection needs:
 - `OS_DETECTION_ENABLE = yes` in rules.mk

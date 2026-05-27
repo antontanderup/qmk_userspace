@@ -20,6 +20,22 @@ void splitkb_logo_sparkle(void);
 // Caps Word / Caps Lock TD key (matrix [6][5], R11 — right-half row 2, fifth from left).
 #define LED_CAPS_WORD_LOCK 54
 
+// Home-row mod LEDs. Lit by rgb_matrix_indicators_advanced_user to show which
+// modifier is currently held. We light both physical bindings of each mod
+// regardless of which side triggered it. Z is also MT(LCTL,...) but is left
+// uncolored — it's just a convenience bind and shouldn't visually compete with
+// the home-row Ctrl key.
+//   Left  row 2: A=23, S=22, D=21, F=20   (matrix row 1, cols 5/4/3/2)
+//   Right row 2: J=51, K=52, L=53, ;=54   (matrix row 6, cols 2/3/4/5)
+#define LED_HRM_GUI_L 23  // A — MT(LGUI, A)
+#define LED_HRM_ALT_L 22  // S — MT(LALT, S)
+#define LED_HRM_CTL_L 21  // D — MT(LCTL, D)
+#define LED_HRM_SFT_L 20  // F — MT(LSFT, F)
+#define LED_HRM_SFT_R 51  // J — MT(RSFT, J)
+#define LED_HRM_CTL_R 52  // K — MT(RCTL, K)
+#define LED_HRM_ALT_R 53  // L — MT(LALT, L)
+#define LED_HRM_GUI_R 54  // ; — MT(RGUI, ;)
+
 #ifdef OS_DETECTION_ENABLE
 // Master detects OS and tracks the CG_TOGG swap state. Slave has no USB (so no
 // OS detection) and never processes CG_TOGG keypresses (so its keymap_config
@@ -33,14 +49,6 @@ typedef struct {
 static volatile os_variant_t synced_host_os = OS_UNSURE;
 static volatile bool         synced_cg_swap = false;
 
-// Keymap convention: CG_TOGG-on means the user is driving a Mac (so the
-// labeled-LCTL home-row key sends Cmd). Naming it makes downstream conditionals
-// read in domain terms ("host is mac but not in mac mode → warn") and gives
-// future OS-aware code one place to ask.
-static inline bool macos_mode(void) {
-    return synced_cg_swap;
-}
-
 static void user_os_sync_slave_handler(uint8_t in_size, const void *in_data,
                                        uint8_t out_size, void *out_data) {
     if (in_size == sizeof(user_sync_t)) {
@@ -51,11 +59,27 @@ static void user_os_sync_slave_handler(uint8_t in_size, const void *in_data,
 }
 
 // Override the TFT module's weak getter so the display reads the split-synced
-// value (slave's keymap_config never sees CG_TOGG presses).
+// value (slave's keymap_config never sees CG_TOGG presses). Uses
+// synced_cg_swap directly because the keymap-level macos_mode() helper is
+// defined further down (and resolves to the same value in this build).
 bool hlc_macos_mode(void) {
-    return macos_mode();
+    return synced_cg_swap;
 }
 #endif
+
+// Keymap convention: CG_TOGG-on means the user is driving a Mac (so the
+// labeled-LCTL home-row key sends Cmd). With OS_DETECTION we use the
+// split-synced value so both halves agree; without it we fall back to
+// keymap_config (only correct on master). Defined outside the OS_DETECTION
+// block so indicators that don't depend on OS detection (e.g. the mod LED
+// painter) can still ask "are we in mac mode?".
+static inline bool macos_mode(void) {
+#ifdef OS_DETECTION_ENABLE
+    return synced_cg_swap;
+#else
+    return keymap_config.swap_lctl_lgui;
+#endif
+}
 
 enum layers {
     _QWERTY = 0,
@@ -269,9 +293,37 @@ bool process_record_user(uint16_t keycode, keyrecord_t *record) {
 }
 
 #ifdef RGB_MATRIX_ENABLE
+static inline void paint_mod_led(uint8_t led_min, uint8_t led_max, uint8_t led) {
+    if (led >= led_min && led < led_max) {
+        rgb_matrix_set_color(led, RGB_WHITE);
+    }
+}
+
 // Each LED is gated independently so the slice [led_min, led_max) on either
 // half only paints the LEDs it actually owns.
 bool rgb_matrix_indicators_advanced_user(uint8_t led_min, uint8_t led_max) {
+    // QMK's `mod_config()` applies the CG swap BEFORE the mod is registered
+    // (see quantum/keycode_config.c), so get_mods() returns post-swap bits.
+    // That means in mac mode, MOD_MASK_CTRL is set when host sees Ctrl held
+    // (= physical LGUI keys A,; were pressed), and MOD_MASK_GUI when host
+    // sees Cmd (= physical LCTL keys D,K). The table flips accordingly so we
+    // always light the keys the user actually pressed.
+    const bool mac = macos_mode();
+    const struct { uint8_t mask; uint8_t led_l; uint8_t led_r; } hrm_leds[] = {
+        { MOD_MASK_SHIFT, LED_HRM_SFT_L,                          LED_HRM_SFT_R                          },
+        { MOD_MASK_ALT,   LED_HRM_ALT_L,                          LED_HRM_ALT_R                          },
+        { MOD_MASK_CTRL,  mac ? LED_HRM_GUI_L : LED_HRM_CTL_L,    mac ? LED_HRM_GUI_R : LED_HRM_CTL_R    },
+        { MOD_MASK_GUI,   mac ? LED_HRM_CTL_L : LED_HRM_GUI_L,    mac ? LED_HRM_CTL_R : LED_HRM_GUI_R    },
+    };
+
+    const uint8_t mods = get_mods() | get_weak_mods() | get_oneshot_mods();
+    for (size_t i = 0; i < ARRAY_SIZE(hrm_leds); i++) {
+        if (mods & hrm_leds[i].mask) {
+            paint_mod_led(led_min, led_max, hrm_leds[i].led_l);
+            paint_mod_led(led_min, led_max, hrm_leds[i].led_r);
+        }
+    }
+
 #    ifdef OS_DETECTION_ENABLE
     // CG_TOGG: bright red when host is macOS but swap is off (i.e. user forgot
     // to enable mac mode). synced_* are populated on master and pushed to slave
@@ -282,8 +334,9 @@ bool rgb_matrix_indicators_advanced_user(uint8_t led_min, uint8_t led_max) {
         }
     }
 #    endif
-    // Caps Lock / Caps Word state on the TD key. Caps Lock wins if both are
-    // somehow on (can't actually happen with our tap dance, but defensive).
+    // Caps Lock / Caps Word on the TD key. Painted last so it overrides any
+    // held-mod tint at the same LED (matters because ; is RGUI and shares
+    // LED 54). Caps Lock wins over Caps Word if both somehow on.
     if (LED_CAPS_WORD_LOCK >= led_min && LED_CAPS_WORD_LOCK < led_max) {
         if (host_keyboard_led_state().caps_lock) {
             rgb_matrix_set_color(LED_CAPS_WORD_LOCK, RGB_RED);
