@@ -112,6 +112,11 @@ enum layers {
 #define KC_UNDO  LCTL(KC_Z)
 #define KC_REDO  LCTL(LSFT(KC_Z))
 
+// Cycle windows within the current app on macOS (Cmd+`). Written as
+// LCTL(KC_GRAVE) so the CG_TOGG swap turns it into Cmd+grave at the host;
+// outside mac mode it sends Ctrl+grave (VS Code terminal toggle on Win).
+#define MAC_CYCLE LCTL(KC_GRAVE)
+
 // EMOJI is a custom keycode below — branches on macos_mode: Globe+E on Mac
 // (Sonoma+ picker), Win+. otherwise (Windows 10+ system picker).
 
@@ -175,7 +180,7 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
      _______, _______, _______, _______, _______, _______,                                     KC_REDO, KC_PASTE, KC_COPY, KC_CUT,  KC_UNDO,   KC_MCTL,
      _______, _______, _______, _______, _______, _______,                                     KC_LEFT, KC_DOWN,  KC_UP,   KC_RGHT, TD(TD_CAPS_WORD_LOCK), _______,
      _______, _______, _______, _______, _______, _______, _______, _______, _______, _______, KC_HOME, KC_PGDN,  KC_PGUP, KC_END,  KC_INSERT, _______,
-                                _______, _______, _______, _______, _______, _______, _______, _______, _______, _______,
+                                _______, _______, _______, _______, _______, _______, _______, _______, MAC_CYCLE, _______,
      _______, _______, _______, _______, _______,                                                                _______, _______, _______, _______, _______
     ),
 
@@ -567,8 +572,11 @@ bool rgb_matrix_indicators_advanced_user(uint8_t led_min, uint8_t led_max) {
         for (size_t i = 0; i < ARRAY_SIZE(nav_tertiary_leds); i++) {
             paint_led(led_min, led_max, nav_tertiary_leds[i], 0x06, 0x00, 0x10);
         }
-        // KC_MCTL — cool blue, outside the purple ramp.
-        paint_led(led_min, led_max, 61, 0x60, 0xB0, 0xFF);
+        // KC_MCTL and MAC_CYCLE — cool blue, outside the purple ramp. Both
+        // are "switch/cycle on macOS" system actions, so same color groups
+        // them visually.
+        paint_led(led_min, led_max, 61, 0x60, 0xB0, 0xFF);  // KC_MCTL
+        paint_led(led_min, led_max, 40, 0x60, 0xB0, 0xFF);  // MAC_CYCLE (CG_TOGG slot)
     }
 
     // _FUN: three tiers of red on the left hand. F1-F9 primary (brightest,

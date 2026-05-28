@@ -169,6 +169,13 @@ adjust key.
   - **NEXT/PREV (LEDs 54, 48)**: matched amber pair (hue 25 at current val)
     signaling "cycle through modes". Same color since the action is symmetric.
 
+  Note: `MAC_CYCLE` (= `LCTL(KC_GRAVE)`, cycles windows within current app on
+  Mac) is bound on the `_NAV` thumb row at the CG_TOGG slot (matrix `[8,2]`,
+  LED 40). On `_NAV` it's painted the same cool blue as KC_MCTL — both are
+  macOS system-switch actions, so grouping them visually makes sense. When
+  not in mac mode the CG_TOGG warning red on LED 40 overrides the blue,
+  which is the correct precedence.
+
   Mode-keycode-to-enum lookup wasn't trivially available (RGB_M_* routes
   through QMK's compatibility layer), so the mode pickers don't highlight
   the active mode — possible follow-up if exact enum constants get pinned
