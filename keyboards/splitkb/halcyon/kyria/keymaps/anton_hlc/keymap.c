@@ -112,13 +112,28 @@ enum layers {
 #define KC_UNDO  LCTL(KC_Z)
 #define KC_REDO  LCTL(LSFT(KC_Z))
 
-#define EMOJI           LCTL(LGUI(KC_SPACE))
+// EMOJI is a custom keycode below — branches on macos_mode: Globe+E on Mac
+// (Sonoma+ picker), Win+. otherwise (Windows 10+ system picker).
 
-// macOS Globe (🌐) key — sent as USB HID Consumer page usage 0x29D
-// (AC Keyboard Layout Select). macOS routes this to the Globe key handler,
-// no Apple VID spoofing required.
+// AP_GLOBE: macOS Globe (🌐) key — sent as USB HID Consumer page usage 0x29D
+// (AC Keyboard Layout Select). macOS routes this to the Globe key handler.
+//
+// M_*: one-shot RGB matrix mode pickers. The legacy RGB_M_* keycodes don't
+// work on rgb_matrix-only builds (they belong to the older rgblight code
+// path), so we mint our own and call rgb_matrix_mode() directly.
 enum custom_keycodes {
     AP_GLOBE = SAFE_RANGE,
+    EMOJI,      // macos_mode → Globe+E; otherwise → Win+.
+    M_PLAIN,    // SOLID_COLOR
+    M_BREATH,   // BREATHING
+    M_BAND,     // BAND_VAL
+    M_CYCLE,    // CYCLE_LEFT_RIGHT (classic rainbow)
+    M_PIN,      // CYCLE_PINWHEEL
+    M_BEACON,   // RAINBOW_BEACON
+    M_DROPS,    // RAINDROPS
+    M_JELLY,    // JELLYBEAN_RAINDROPS
+    M_HUEBR,    // HUE_BREATHING
+    M_FLOW,     // PIXEL_FLOW
 };
 
 // Tap dance: 1 tap = CAPS_WORD, 2 taps = CAPS_LOCK
@@ -223,9 +238,9 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
  * Adjust Layer: Default layer settings, RGB
  */
     [_ADJUST] = LAYOUT_split_3x6_5_hlc(
-     _______, RGB_M_P, RGB_M_K,  RGB_M_R, RGB_M_SN, RGB_M_X,                                       _______, _______, _______, _______, _______, _______,
-     _______, RGB_M_G, RGB_M_TW, _______, _______,  _______,                                       RM_TOGG, RM_SATU, RM_HUEU, RM_VALU, RM_NEXT, _______,
-     QK_BOOT, _______, _______,  _______, _______,  _______, _______, _______, _______, _______,   _______, RM_SATD, RM_HUED, RM_VALD, RM_PREV, QK_BOOT,
+     _______, M_PLAIN,  M_BREATH, M_BAND,  M_CYCLE, M_PIN,                                         _______, _______, _______, _______, _______, _______,
+     _______, M_BEACON, M_DROPS,  M_JELLY, M_HUEBR, M_FLOW,                                        RM_TOGG, RM_SATU, RM_HUEU, RM_SPDU, RM_NEXT, _______,
+     QK_BOOT, _______, _______,  _______, _______,  _______, _______, _______, _______, _______,   _______, RM_SATD, RM_HUED, RM_SPDD, RM_PREV, QK_BOOT,
                                 _______, _______, _______, _______, _______,    _______, _______, _______, _______, _______,
      _______, _______, _______, _______, _______,                                                                _______, _______, _______, _______, _______
     ),
@@ -293,6 +308,46 @@ bool process_record_user(uint16_t keycode, keyrecord_t *record) {
         case AP_GLOBE:
             host_consumer_send(record->event.pressed ? AC_NEXT_KEYBOARD_LAYOUT_SELECT : 0);
             return false;
+        case EMOJI: {
+            // Cache mac state at press time so a release after a CG_TOGG flip
+            // still tears down whatever the press registered.
+            static bool emoji_used_mac = false;
+            if (record->event.pressed) {
+                emoji_used_mac = macos_mode();
+                if (emoji_used_mac) {
+                    // Globe + E — the Sonoma+ emoji picker. Needs
+                    // KEYBOARD_SHARED_EP=yes so the consumer + keyboard
+                    // reports can both be live at once.
+                    host_consumer_send(AC_NEXT_KEYBOARD_LAYOUT_SELECT);
+                    register_code(KC_E);
+                } else {
+                    // Win+. — Windows 10+ system emoji picker.
+                    register_code16(LGUI(KC_DOT));
+                }
+            } else {
+                if (emoji_used_mac) {
+                    unregister_code(KC_E);
+                    host_consumer_send(0);
+                } else {
+                    unregister_code16(LGUI(KC_DOT));
+                }
+            }
+            return false;
+        }
+#ifdef RGB_MATRIX_ENABLE
+        // One-shot mode pickers on _ADJUST. Only act on press; rgb_matrix_mode
+        // persists to EEPROM (QMK handles wear-leveling internally).
+        case M_PLAIN:  if (record->event.pressed) rgb_matrix_mode(RGB_MATRIX_SOLID_COLOR);         return false;
+        case M_BREATH: if (record->event.pressed) rgb_matrix_mode(RGB_MATRIX_BREATHING);           return false;
+        case M_BAND:   if (record->event.pressed) rgb_matrix_mode(RGB_MATRIX_BAND_VAL);            return false;
+        case M_CYCLE:  if (record->event.pressed) rgb_matrix_mode(RGB_MATRIX_CYCLE_LEFT_RIGHT);    return false;
+        case M_PIN:    if (record->event.pressed) rgb_matrix_mode(RGB_MATRIX_CYCLE_PINWHEEL);      return false;
+        case M_BEACON: if (record->event.pressed) rgb_matrix_mode(RGB_MATRIX_RAINBOW_BEACON);      return false;
+        case M_DROPS:  if (record->event.pressed) rgb_matrix_mode(RGB_MATRIX_RAINDROPS);           return false;
+        case M_JELLY:  if (record->event.pressed) rgb_matrix_mode(RGB_MATRIX_JELLYBEAN_RAINDROPS); return false;
+        case M_HUEBR:  if (record->event.pressed) rgb_matrix_mode(RGB_MATRIX_HUE_BREATHING);       return false;
+        case M_FLOW:   if (record->event.pressed) rgb_matrix_mode(RGB_MATRIX_PIXEL_FLOW);          return false;
+#endif
     }
     return true;
 }
@@ -380,6 +435,82 @@ bool rgb_matrix_indicators_advanced_user(uint8_t led_min, uint8_t led_max) {
         for (size_t i = 0; i < ARRAY_SIZE(sym_leds); i++) {
             paint_led(led_min, led_max, sym_leds[i], 0x1A, 0x16, 0x02);
         }
+    }
+
+    // _ADJUST: the whole layer is the RGB control panel, visualizing its own
+    // state. Adjust keys preview their effects, "above column" LEDs show the
+    // current color, mode pickers form a memorable rainbow, NEXT/PREV in amber,
+    // QK_BOOT in red as a "don't fat-finger me" warning, RM_TOGG green.
+    if (IS_LAYER_ON(_ADJUST)) {
+        paint_led(led_min, led_max, 18, 0xFF, 0x00, 0x00);  // QK_BOOT left
+        paint_led(led_min, led_max, 49, 0xFF, 0x00, 0x00);  // QK_BOOT right
+        if (rgb_matrix_is_enabled()) {
+            paint_led(led_min, led_max, 50, 0x00, 0xC0, 0x00);  // RM_TOGG — green
+        } else {
+            paint_led(led_min, led_max, 50, 0xFF, 0x00, 0x00);  // RM_TOGG — red (unreachable)
+        }
+
+        // Live HSV state from the matrix. All previews scale brightness with
+        // the current val so they harmonize when the user dims the matrix.
+        const uint8_t h = rgb_matrix_get_hue();
+        const uint8_t s = rgb_matrix_get_sat();
+        const uint8_t v = rgb_matrix_get_val();
+        const uint8_t hue_delta = 16;
+
+        const RGB rgb_current  = hsv_to_rgb((HSV){ h,                        s,    v });
+        const RGB rgb_max_sat  = hsv_to_rgb((HSV){ h,                        0xFF, v });
+        const RGB rgb_min_sat  = hsv_to_rgb((HSV){ h,                        0x30, v });
+        const RGB rgb_hue_up   = hsv_to_rgb((HSV){ (uint8_t)(h + hue_delta), s,    v });
+        const RGB rgb_hue_down = hsv_to_rgb((HSV){ (uint8_t)(h - hue_delta), s,    v });
+
+        // SAT triplet
+        paint_led(led_min, led_max, 57, rgb_current.r,  rgb_current.g,  rgb_current.b);   // above sat col
+        paint_led(led_min, led_max, 51, rgb_max_sat.r,  rgb_max_sat.g,  rgb_max_sat.b);   // RM_SATU
+        paint_led(led_min, led_max, 45, rgb_min_sat.r,  rgb_min_sat.g,  rgb_min_sat.b);   // RM_SATD
+        // HUE triplet
+        paint_led(led_min, led_max, 58, rgb_current.r,  rgb_current.g,  rgb_current.b);   // above hue col
+        paint_led(led_min, led_max, 52, rgb_hue_up.r,   rgb_hue_up.g,   rgb_hue_up.b);    // RM_HUEU
+        paint_led(led_min, led_max, 46, rgb_hue_down.r, rgb_hue_down.g, rgb_hue_down.b);  // RM_HUED
+        // SPEED triplet (former VAL column). Above-column LED brightness
+        // tracks the actual current speed (0-255) — turning the encoder for
+        // brightness leaves it alone; pressing SPDU/SPDD makes it dim/brighten.
+        const uint8_t speed = rgb_matrix_get_speed();
+        const RGB rgb_spd_now  = hsv_to_rgb((HSV){ 130, 0xFF, speed             });
+        const RGB rgb_spd_up   = hsv_to_rgb((HSV){ 130, 0xFF, v                 });
+        const RGB rgb_spd_down = hsv_to_rgb((HSV){ 130, 0xFF, (uint8_t)(v >> 1) });
+        paint_led(led_min, led_max, 59, rgb_spd_now.r,  rgb_spd_now.g,  rgb_spd_now.b);   // above speed col — live speed
+        paint_led(led_min, led_max, 53, rgb_spd_up.r,   rgb_spd_up.g,   rgb_spd_up.b);    // RM_SPDU
+        paint_led(led_min, led_max, 47, rgb_spd_down.r, rgb_spd_down.g, rgb_spd_down.b);  // RM_SPDD
+
+        // Mode picker grid (left hand, excluding outer column + bottom row).
+        // 10 keys across two rows, 10 hues distributed around the wheel
+        // (~26 apart). Full saturation so each reads as visually distinct;
+        // brightness tracks current val so it harmonizes with the right hand.
+        // Builds muscle memory: "the green one is cycle", etc.
+        static const struct { uint8_t led; uint8_t hue; } mode_pickers[] = {
+            // Row 1 (calmer): solid → waves
+            { 29,   0 },  // M_PLAIN  (red)
+            { 28,  26 },  // M_BREATH (orange)
+            { 27,  52 },  // M_BAND   (yellow)
+            { 26,  78 },  // M_CYCLE  (chartreuse)
+            { 25, 104 },  // M_PIN    (green)
+            // Row 2 (busier): radial → particle
+            { 23, 130 },  // M_BEACON (teal)
+            { 22, 156 },  // M_DROPS  (cyan)
+            { 21, 182 },  // M_JELLY  (blue)
+            { 20, 208 },  // M_HUEBR  (purple)
+            { 19, 234 },  // M_FLOW   (magenta)
+        };
+        for (size_t i = 0; i < ARRAY_SIZE(mode_pickers); i++) {
+            const RGB rgb = hsv_to_rgb((HSV){ mode_pickers[i].hue, 0xFF, v });
+            paint_led(led_min, led_max, mode_pickers[i].led, rgb.r, rgb.g, rgb.b);
+        }
+
+        // RM_NEXT / RM_PREV — amber pair, signals "cycle through modes".
+        // Same color on both since the function is symmetric.
+        const RGB rgb_nav = hsv_to_rgb((HSV){ 25, 0xFF, v });
+        paint_led(led_min, led_max, 54, rgb_nav.r, rgb_nav.g, rgb_nav.b);  // RM_NEXT
+        paint_led(led_min, led_max, 48, rgb_nav.r, rgb_nav.g, rgb_nav.b);  // RM_PREV
     }
 
     // _MEDIA: full chaos. Each bound key cycles through every hue at full
@@ -579,12 +710,21 @@ bool encoder_update_user(uint8_t index, bool clockwise) {
                     tap_code(KC_VOLD);
                 }
                 break;
+#ifdef RGB_MATRIX_ENABLE
+            case _ADJUST:
+                // Matrix brightness (so VAL keys are freed for speed)
+                if (clockwise) {
+                    rgb_matrix_increase_val();
+                } else {
+                    rgb_matrix_decrease_val();
+                }
+                break;
+#endif
             case _MOUSE:
             case _QWERTY:
             case _NUM:
             case _SYM:
             case _FUN:
-            case _ADJUST:
             case _NAV:
             default:
                 // Scroll 5 lines

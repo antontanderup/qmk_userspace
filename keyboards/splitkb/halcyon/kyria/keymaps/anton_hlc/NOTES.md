@@ -44,6 +44,13 @@ enum custom_keycodes { AP_GLOBE = SAFE_RANGE };
   page usage `0x29D`). Requires `KEYBOARD_SHARED_EP = yes` in rules.mk so the
   consumer report shares the keyboard endpoint (needed for Globe+E, Globe+F,
   etc. chords).
+- **`EMOJI`** — mode-aware emoji picker. In `macos_mode()` it fires Globe+E
+  (modern Sonoma+ picker) by sending the AC_NEXT_KEYBOARD_LAYOUT_SELECT
+  consumer + register_code(KC_E) simultaneously. Outside mac mode it fires
+  `LGUI(KC_DOT)` = Win+. (Windows 10+ system emoji picker; with CG_TOGG off
+  the LGUI bit reaches the host as the Windows key). The "was mac at press
+  time" decision is cached in a static so the release path tears down
+  whatever the press registered, even if CG_TOGG flips mid-hold.
 
 ## Tap dances
 
@@ -132,6 +139,41 @@ brightness relationship (~10% luminance ratio) on both, different base hue:
   symbols/operators dim `(0x05, 0x12, 0x28)`.
 - `_SYM`: primary shifted glyphs saturated yellow `(0xFF, 0xE0, 0x10)`, border
   symbols dim `(0x1A, 0x16, 0x02)`.
+- `_ADJUST`: both QK_BOOT keys (LEDs 18 and 49 — outer corners of row 3)
+  painted bright red as a "don't hit by accident" warning. RM_TOGG (LED 50)
+  green when `rgb_matrix_is_enabled()` is true; the "red when off" branch is
+  unreachable because indicator callbacks don't run while the matrix is off
+  (kept in code for clarity, but expect to only see green). The whole layer is the RGB control panel, visualizing its own state. Live
+HSV state is read each call via `rgb_matrix_get_hue/sat/val` and converted
+through `hsv_to_rgb()`, so every cell updates as soon as you press an
+adjust key.
+
+  - **SAT triplet**: SATU (LED 51) = current hue at max sat; SATD (LED 45) =
+    current hue at min visible sat (S=0x30 — fully desaturated would just be
+    gray); above-column LED 57 (R02) = current color at actual current sat.
+  - **HUE triplet**: HUEU (LED 52) = hue +16/256 (~22°); HUED (LED 46) = hue
+    -16/256; above-column LED 58 (R03) = current color.
+  - **SPEED triplet** (former VAL column): SPDU (LED 53) full-brightness
+    cyan, SPDD (LED 47) half-brightness cyan, above-column LED 59 (R04)
+    cyan brightness = current `rgb_matrix_get_speed()`. RM_VALU/RM_VALD are
+    no longer on the keymap — brightness lives on the right encoder
+    (`_ADJUST` layer), freeing the val column for speed.
+  - **Mode pickers (left hand)**: 10 custom keycodes `M_PLAIN/BREATH/BAND/
+    CYCLE/PIN` (row 1) and `M_BEACON/DROPS/JELLY/HUEBR/FLOW` (row 2). Each
+    maps to a specific `RGB_MATRIX_*` enum via `process_record_user` calling
+    `rgb_matrix_mode()`. The legacy `RGB_M_*` keycodes don't work on
+    rgb_matrix-only builds — they belong to the older rgblight code path and
+    silently no-op here, which is why we mint our own. Indicator: 10 hues
+    distributed ~26 apart around the wheel at full saturation, brightness
+    tracking current val. Builds color → mode muscle memory.
+  - **NEXT/PREV (LEDs 54, 48)**: matched amber pair (hue 25 at current val)
+    signaling "cycle through modes". Same color since the action is symmetric.
+
+  Mode-keycode-to-enum lookup wasn't trivially available (RGB_M_* routes
+  through QMK's compatibility layer), so the mode pickers don't highlight
+  the active mode — possible follow-up if exact enum constants get pinned
+  down. LED 54 (RM_NEXT) is also LED_CAPS_WORD_LOCK; the caps lock/word
+  indicator paints later, so it correctly overrides the amber when active.
 - `_MEDIA`: chaotic animated rainbow. Each of the 7 bound keys (PREV/VOL-/
   VOL+/NEXT on LEDs 50–53, STOP/PLAY/MUTE on LEDs 37–39) cycles through all
   256 hues at full saturation, V=0xE0. Phase offset is `i * 37` (prime,
@@ -213,6 +255,7 @@ flexibility (`tap_code16` for modifier combos, multi-tap per detent).
 | Left  (idx 0) | `_MOUSE`, `_AUTO_MOUSE` | `MS_WHLU/D` |
 | Left  (idx 0) | other | `Cmd+Z` / `Cmd+Shift+Z` (undo/redo) |
 | Right (idx 2) | `_MEDIA` | volume |
+| Right (idx 2) | `_ADJUST` | `rgb_matrix_increase_val` / `_decrease_val` |
 | Right (idx 2) | other | scroll 5 lines (`Up×5` / `Down×5`) |
 
 Slots 1 and 3 are the inactive Halcyon-module encoder positions (we only have
