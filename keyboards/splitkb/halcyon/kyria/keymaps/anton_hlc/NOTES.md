@@ -86,24 +86,33 @@ enum tap_dance_codes { TD_CAPS_WORD_LOCK };
   `tap_code16(CW_TOGG)` which doesn't work — 16-bit quantum keycodes get
   truncated by `register_code`). 2 taps = real `KC_CAPS`.
 
-## OS detection + CG_TOGG state — split sync
+## OS detection + CG_TOGG + caps word — split sync
 
 This is the trickiest part of the keymap. **The slave has no USB**, so:
 1. `detected_host_os()` on slave always returns `OS_UNSURE`.
 2. `keymap_config.swap_lctl_lgui` on slave never gets updated (CG_TOGG presses
    are only processed on master).
+3. `is_caps_word_on()` is master-only internal state — QMK has **no built-in
+   split sync** for caps word (unlike caps/num/scroll lock, which ride
+   `SPLIT_LED_STATE_ENABLE`). Without syncing it, the right-hand Shift LED (J)
+   wouldn't light for caps word even though the left (F) does.
 
 To make the LED indicator (master/slave-agnostic) and TFT display (which lives
 on the left half regardless of which half is master) reflect reality, we sync
-both pieces of state from master to slave via a custom split RPC:
+all three pieces of state from master to slave via one custom split RPC:
 
 ```c
 #define SPLIT_TRANSACTION_IDS_USER USER_OS_SYNC   // config.h
 
-typedef struct { uint8_t os; uint8_t cg_swap; } user_sync_t;
-static volatile os_variant_t synced_host_os = OS_UNSURE;
-static volatile bool         synced_cg_swap = false;
+typedef struct { uint8_t os; uint8_t cg_swap; uint8_t caps_word; } user_sync_t;
+static volatile os_variant_t synced_host_os   = OS_UNSURE;
+static volatile bool         synced_cg_swap   = false;
+static volatile bool         synced_caps_word = false;
 ```
+
+`caps_word` piggybacks on this existing transaction rather than adding a second
+one. The caps indicator reads `synced_caps_word` on both halves (one-frame
+latency on the master is invisible).
 
 - `keyboard_post_init_user` registers `user_os_sync_slave_handler`.
 - `housekeeping_task_user` (master only): always updates master's local
@@ -272,11 +281,17 @@ mis-report macOS as Windows/Linux. The swap flash doesn't depend on OS detection
 at all, sidestepping the whole problem. `synced_host_os` is now vestigial (still
 synced, no longer read) — left in place in case detection is revisited.
 
-**Caps state on the TD key** — `LED_CAPS_WORD_LOCK = 54`. Red when caps lock,
-blue when caps word. Matrix `[6][5]` = `R11`, the fifth key from the left on
-the right-hand second row, where `TD(TD_CAPS_WORD_LOCK)` lives on `_NAV`.
-Painted last so it overrides any held-mod tint on the same LED (`;` is RGUI
-and shares LED 54).
+**Caps state** — split across two cues, painted last so they override held-mod
+tint on shared LEDs (`;` is RGUI and shares LED 54):
+
+- **Mode**, on both Shift home-row mods (`LED_HRM_SFT_L = 20` / F,
+  `LED_HRM_SFT_R = 51` / J): red = caps lock, blue = caps word. Shift is the
+  intuitive "caps is on" cue and reads clearly on the display-less build.
+- **Exit beacon**, on the TD key (`LED_CAPS_WORD_LOCK = 54`, matrix `[6][5]` =
+  `R11`, where `TD(TD_CAPS_WORD_LOCK)` lives on `_NAV`): pulsates **white** for
+  **caps lock only** — it's the key you press to get back out. Caps word
+  self-exits after a word, so it gets no beacon. Triangle-wave breathe off
+  `timer_read32()`, period `CAPS_PULSE_PERIOD_MS` (1600 ms).
 
 OS detection needs:
 - `OS_DETECTION_ENABLE = yes` in rules.mk

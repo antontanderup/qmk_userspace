@@ -19,6 +19,8 @@ void splitkb_logo_sparkle(void);
 #define LED_CG_TOGG        40
 // Caps Word / Caps Lock TD key (matrix [6][5], R11 — right-half row 2, fifth from left).
 #define LED_CAPS_WORD_LOCK 54
+// Breathing period (ms) for the white pulse on the caps-exit key (LED 54).
+#define CAPS_PULSE_PERIOD_MS 1600
 
 // Home-row mod LEDs. Lit by rgb_matrix_indicators_advanced_user to show which
 // modifier is currently held. We light both physical bindings of each mod
@@ -47,19 +49,22 @@ void splitkb_logo_sparkle(void);
 // stays at boot default). We sync both to the slave via a custom split
 // transaction so the indicator can run identically on either half.
 typedef struct {
-    uint8_t os;        // os_variant_t
-    uint8_t cg_swap;   // 0/1
+    uint8_t os;          // os_variant_t
+    uint8_t cg_swap;     // 0/1
+    uint8_t caps_word;   // 0/1 — caps word is master-only; QMK doesn't split-sync it
 } user_sync_t;
 
-static volatile os_variant_t synced_host_os = OS_UNSURE;
-static volatile bool         synced_cg_swap = false;
+static volatile os_variant_t synced_host_os   = OS_UNSURE;
+static volatile bool         synced_cg_swap   = false;
+static volatile bool         synced_caps_word = false;
 
 static void user_os_sync_slave_handler(uint8_t in_size, const void *in_data,
                                        uint8_t out_size, void *out_data) {
     if (in_size == sizeof(user_sync_t)) {
         const user_sync_t *p = in_data;
-        synced_host_os = (os_variant_t)p->os;
-        synced_cg_swap = p->cg_swap != 0;
+        synced_host_os   = (os_variant_t)p->os;
+        synced_cg_swap   = p->cg_swap != 0;
+        synced_caps_word = p->caps_word != 0;
     }
 }
 
@@ -281,20 +286,22 @@ void housekeeping_task_user(void) {
         return;
     }
     user_sync_t cur = {
-        .os      = (uint8_t)detected_host_os(),
-        .cg_swap = keymap_config.swap_lctl_lgui ? 1 : 0,
+        .os        = (uint8_t)detected_host_os(),
+        .cg_swap   = keymap_config.swap_lctl_lgui ? 1 : 0,
+        .caps_word = is_caps_word_on() ? 1 : 0,
     };
     // Always reflect locally — independent of split transport connectivity —
     // so master's indicator and TFT see the real state immediately.
-    synced_host_os = (os_variant_t)cur.os;
-    synced_cg_swap = cur.cg_swap != 0;
+    synced_host_os   = (os_variant_t)cur.os;
+    synced_cg_swap   = cur.cg_swap != 0;
+    synced_caps_word = cur.caps_word != 0;
 
     if (!is_transport_connected()) {
         return;
     }
     static uint16_t last_sent_at = 0;
-    static user_sync_t last_sent = { .os = OS_UNSURE, .cg_swap = 0 };
-    if (cur.os != last_sent.os || cur.cg_swap != last_sent.cg_swap || timer_elapsed(last_sent_at) > 1000) {
+    static user_sync_t last_sent = { .os = OS_UNSURE, .cg_swap = 0, .caps_word = 0 };
+    if (cur.os != last_sent.os || cur.cg_swap != last_sent.cg_swap || cur.caps_word != last_sent.caps_word || timer_elapsed(last_sent_at) > 1000) {
         if (transaction_rpc_send(USER_OS_SYNC, sizeof(cur), &cur)) {
             last_sent = cur;
             last_sent_at = timer_read();
@@ -708,14 +715,37 @@ bool rgb_matrix_indicators_advanced_user(uint8_t led_min, uint8_t led_max) {
         }
     }
 
-    // Caps Lock / Caps Word on the TD key. Painted last so it overrides any
-    // held-mod tint at the same LED (matters because ; is RGUI and shares
-    // LED 54). Caps Lock wins over Caps Word if both somehow on.
-    if (LED_CAPS_WORD_LOCK >= led_min && LED_CAPS_WORD_LOCK < led_max) {
-        if (host_keyboard_led_state().caps_lock) {
-            rgb_matrix_set_color(LED_CAPS_WORD_LOCK, RGB_RED);
-        } else if (is_caps_word_on()) {
-            rgb_matrix_set_color(LED_CAPS_WORD_LOCK, RGB_BLUE);
+    // Caps state. The two Shift home-row mods (F left, J right) carry the mode:
+    // red = Caps Lock, blue = Caps Word — Shift is the intuitive "caps is on"
+    // cue and reads clearly without a display. The TD key (LED 54) pulsates
+    // white for Caps LOCK only — it's the key you press to get back out. Caps
+    // Word self-exits after a word, so there's no beacon for it. Painted last
+    // so it overrides any held-mod tint at the same LEDs (; shares LED 54).
+    {
+        const bool caps_lock = host_keyboard_led_state().caps_lock;
+#    ifdef OS_DETECTION_ENABLE
+        const bool caps_word = synced_caps_word;  // split-synced; master-only state otherwise
+#    else
+        const bool caps_word = is_caps_word_on();
+#    endif
+        uint8_t cr = 0, cg = 0, cb = 0;
+        if (caps_lock) {
+            cr = 0xFF;            // red
+        } else if (caps_word) {
+            cb = 0xFF;            // blue
+        }
+        if (caps_lock || caps_word) {
+            paint_led(led_min, led_max, LED_HRM_SFT_L, cr, cg, cb);
+            paint_led(led_min, led_max, LED_HRM_SFT_R, cr, cg, cb);
+        }
+        if (caps_lock) {
+            // Triangle-wave breathe, 0..255..0 over one period.
+            const uint16_t phase = (uint16_t)(timer_read32() % CAPS_PULSE_PERIOD_MS);
+            const uint16_t half  = CAPS_PULSE_PERIOD_MS / 2;
+            const uint8_t  v     = phase < half
+                                 ? (uint8_t)((uint32_t)phase * 255 / half)
+                                 : (uint8_t)((uint32_t)(CAPS_PULSE_PERIOD_MS - phase) * 255 / half);
+            paint_led(led_min, led_max, LED_CAPS_WORD_LOCK, v, v, v);
         }
     }
     return false;
