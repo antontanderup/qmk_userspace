@@ -52,6 +52,29 @@ enum custom_keycodes { AP_GLOBE = SAFE_RANGE };
   time" decision is cached in a static so the release path tears down
   whatever the press registered, even if CG_TOGG flips mid-hold.
 
+## LT() taps with Quantum keycodes (CG_TOGG / RM_TOGG)
+
+The two `_ADJUST` thumb keys are `LT(_ADJUST, CG_TOGG)` (right) and
+`LT(_ADJUST, RM_TOGG)` (left). `LT(layer, kc)` only keeps the **low byte** of
+`kc` (8 bits for the tap, 4 for the layer), so a 16-bit Quantum keycode like
+`CG_TOGG` (Magic range, `0x70xx`) or `RM_TOGG` (RGB range) gets truncated — the
+tap fires a stray basic keycode and the real action never runs.
+
+Fix lives in `process_record_user`: real `LT()` handles the **hold** (momentary
+`_ADJUST`); the **tap** is intercepted and the action done by hand. The `case
+LT(_ADJUST, CG_TOGG):` label truncates identically to the stored key, so it
+still matches — we just ignore the broken tap keycode.
+
+- **CG_TOGG tap** mirrors `QK_MAGIC_TOGGLE_CTL_GUI`: flips **both**
+  `swap_lctl_lgui` and `swap_rctl_rgui` (right follows left) then
+  `eeconfig_update_keymap(&keymap_config)`. Toggling only the left pair would
+  desync the RCTL/RGUI home-row mods. Verified against
+  `qmk_firmware/quantum/process_keycode/process_magic.c`.
+- **RM_TOGG tap** calls `rgb_matrix_toggle()` (the EEPROM-persisting variant).
+- Pattern: `if (record->tap.count && record->event.pressed) { …; return false; }
+  return true;` — consume only the tap press, let the hold fall through to QMK.
+  Same family as the `tap_code16(CW_TOGG)` gotcha at the bottom of this file.
+
 ## Tap dances
 
 ```c
@@ -210,9 +233,44 @@ Border keys are barely-on by design — they read as a quiet frame rather than
 competing with the primary cluster for attention. Keeps numbers
 visually distinct from the operator border so muscle memory builds faster.
 
-**CG_TOGG warning** — `LED_CG_TOGG = 40`. Bright red when
-`synced_host_os == OS_MACOS && !macos_mode()`. Matrix `[8][2]` = `k8C`, the
-right-hand thumb cluster outer slot where `CG_TOGG` is bound on base.
+**CG-swap toggle flash** — when the Control/GUI swap flips, every LED blinks
+**3×**: **white** when entering swapped (Mac) mode, **green** when leaving it.
+Implemented at the top of `rgb_matrix_indicators_advanced_user` by
+edge-detecting `synced_cg_swap` (not by hooking the keypress), so **both halves
+flash in sync** — master updates `synced_cg_swap` locally, slave gets it via the
+`USER_OS_SYNC` RPC, and each half's indicator independently sees the same edge.
+While a flash is active the function paints all LEDs in `[led_min, led_max)` and
+returns early, so the flash owns the whole frame (~720 ms: 3 × 120 ms on/off).
+**Brownout — confirmed, and it's total board current, not brightness.** White
+lights all 3 channels, so flashing the whole board browns out the rail and kills
+the TFT until the next clean boot. Reproducible: green (one channel) survives;
+white (three channels) takes the screen down — and capping white brightness
+alone (`0x50` across the whole board) still died. The count of lit LEDs is what
+matters. Three mitigations, in order of importance:
+
+- **Only the top row flashes** — 12 per-key LEDs (6/half: left 25-30, right
+  56-61, the lowest-`y` LEDs in `g_led_config`) instead of ~31/half. This is the
+  real fix; it drops peak draw to ~20% of the whole-board flash. Off-phase
+  paints the row black against the live effect so it still reads as a blink,
+  while the rest of the board keeps animating. The flash still returns `false`,
+  so other indicators are skipped for its ~720 ms.
+- `CG_FLASH_WHITE_LEVEL` (`0x50`) keeps each white LED's draw under the
+  proven-safe green (`3 * 0x50 = 0xF0 < 0xFF`). Secondary margin. Green stays
+  full `0xFF`.
+- `CG_FLASH_BOOT_GRACE_MS` (3 s) suppresses flashes right after power-on so
+  nothing blinks while the TFT is still coming up.
+
+If you make the flash brighter or wider, watch total draw (level × lit LEDs) —
+overshoot and the TFT brownout returns.
+
+This **replaced an earlier OS-detection red warning** (host is macOS but swap is
+off). That warning quietly stopped working: `KEYBOARD_SHARED_EP = yes` (added
+with the Globe/emoji key) restructures the USB descriptors, and QMK's OS
+detection fingerprints the host from the descriptor-request pattern during
+enumeration — so the shared endpoint made `detected_host_os()` confidently
+mis-report macOS as Windows/Linux. The swap flash doesn't depend on OS detection
+at all, sidestepping the whole problem. `synced_host_os` is now vestigial (still
+synced, no longer read) — left in place in case detection is revisited.
 
 **Caps state on the TD key** — `LED_CAPS_WORD_LOCK = 54`. Red when caps lock,
 blue when caps word. Matrix `[6][5]` = `R11`, the fifth key from the left on
@@ -225,6 +283,14 @@ OS detection needs:
 - `#define OS_DETECTION_SINGLE_REPORT` in config.h — ARM Macs cause repeated
   re-detection that never settles inside the debounce window without this.
 - `#define OS_DETECTION_DEBOUNCE 500`
+
+**Caveat — detection is unreliable on this build.** `KEYBOARD_SHARED_EP = yes`
+(needed for the Globe key) changes the USB descriptors enough that
+`detected_host_os()` mis-fingerprints macOS as Windows/Linux. That's why nothing
+keys off `synced_host_os` anymore (see the CG-swap toggle flash above). If you
+want OS-aware behavior back, you'd have to either drop the shared endpoint or
+re-tune detection against this descriptor set — don't assume `detected_host_os()`
+is correct here.
 
 ## Trackpad: drag scroll on `_MOUSE`
 
@@ -244,6 +310,37 @@ Cirque gestures (cursor glide, tap-to-click, edge scroll) are **disabled**
 upstream in `users/halcyon_modules/splitkb/hlc_cirque_trackpad/config.h` —
 shared module config edit, applies to any keymap using this fork.
 
+## Trackpad: flick gestures on `_NAV`
+
+Also in `pointing_device_task_combined_user` (the `IS_LAYER_ON(_NAV)` branch):
+a quick directional swipe on the trackpad fires a macOS Mission Control /
+Spaces action.
+
+| Flick | Action | Keys sent |
+|-------|--------|-----------|
+| Up    | Mission Control   | `Ctrl+Up`    |
+| Down  | dismiss it        | `Esc`        |
+| Left  | next Space        | `Ctrl+Right` |
+| Right | previous Space    | `Ctrl+Left`  |
+
+- Hand-rolled stroke recognizer: accumulate trackpad x/y deltas while the
+  finger moves; when the dominant-axis magnitude crosses
+  `NAV_FLICK_THRESHOLD` (80, tunable) fire once, then lock (`nav_flick_fired`)
+  until motion idles for `NAV_FLICK_IDLE_MS` (150) — finger lift = stroke end.
+  One swipe = one action; no auto-repeat.
+- Ctrl combos go through **`tap_code16(LCTL(...))` deliberately** so they
+  bypass the CG_TOGG swap and reach the host as real Ctrl. Mission Control and
+  Spaces are Ctrl shortcuts on macOS, not Cmd — routing through the swap would
+  turn `Ctrl+Up` into `Cmd+Up` (= "open enclosing folder"). Same reasoning as
+  the `tap_code16` gotcha at the bottom of this file.
+- x/y are zeroed afterward (like the `_MOUSE` drag-scroll branch) so a flick
+  never moves the cursor or wakes `_AUTO_MOUSE`.
+- Not gated on `macos_mode()` — the user typically runs mac mode and the
+  Windows fallbacks (`Esc`, `Ctrl+arrows`) are low-harm. Add a `macos_mode()`
+  gate if that changes.
+- y is positive *downward* (matches the drag-scroll convention above): flick
+  up = negative accumulated y.
+
 ## Auto mouse layer
 
 `POINTING_DEVICE_AUTO_MOUSE_ENABLE` + `AUTO_MOUSE_DEFAULT_LAYER = 8` in
@@ -260,6 +357,7 @@ flexibility (`tap_code16` for modifier combos, multi-tap per detent).
 | Side | Layer | Action |
 |------|-------|--------|
 | Left  (idx 0) | `_MOUSE`, `_AUTO_MOUSE` | `MS_WHLU/D` |
+| Left  (idx 0) | `_ADJUST` | `rgb_matrix_increase_hue` / `_decrease_hue` |
 | Left  (idx 0) | other | `Cmd+Z` / `Cmd+Shift+Z` (undo/redo) |
 | Right (idx 2) | `_MEDIA` | volume |
 | Right (idx 2) | `_ADJUST` | `rgb_matrix_increase_val` / `_decrease_val` |

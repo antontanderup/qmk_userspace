@@ -169,7 +169,7 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
      _______, KC_Q,               KC_W,               KC_E,               KC_R,               KC_T,                                                                    KC_Y, KC_U,               KC_I,               KC_O,               KC_P,                  KC_LEFT_BRACKET,
      _______, MT(MOD_LGUI, KC_A), MT(MOD_LALT, KC_S), MT(MOD_LCTL, KC_D), MT(MOD_LSFT, KC_F), KC_G,                                                                    KC_H, MT(MOD_RSFT, KC_J), MT(MOD_RCTL, KC_K), MT(MOD_LALT, KC_L), MT(MOD_RGUI, KC_SCLN), KC_QUOTE,
      AP_GLOBE, MT(MOD_LCTL, KC_Z), KC_X,            KC_C,               KC_V,               KC_B, EMOJI, KC_F13,        MS_BTN1, MS_BTN2,                            KC_N, KC_M,               KC_COMM,            KC_DOT,             KC_SLSH,               AP_GLOBE,
-                                                     _______, LT(_ADJUST, RM_TOGG), LT(_MEDIA, KC_ESC), LT(_NAV, KC_SPACE), LT(_MOUSE, KC_TAB),     LT(_SYM, KC_ENTER), LT(_NUM, KC_BACKSPACE), LT(_FUN, KC_DELETE), CG_TOGG, _______,
+                                                     _______, LT(_ADJUST, RM_TOGG), LT(_MEDIA, KC_ESC), LT(_NAV, KC_SPACE), LT(_MOUSE, KC_TAB),     LT(_SYM, KC_ENTER), LT(_NUM, KC_BACKSPACE), LT(_FUN, KC_DELETE), LT(_ADJUST, CG_TOGG), _______,
      KC_MUTE, KC_NO, KC_NO, KC_NO, KC_NO,                                                                                                                              KC_MUTE, KC_NO, KC_NO, KC_NO, KC_NO
     ),
 
@@ -339,7 +339,31 @@ bool process_record_user(uint16_t keycode, keyrecord_t *record) {
             }
             return false;
         }
+        // CG_TOGG and RM_TOGG are 16-bit Quantum keycodes, so they can't ride
+        // in an LT() tap slot — only the low byte survives the LT() packing, so
+        // the tap is silently truncated to a stray basic keycode (see NOTES.md).
+        // We let real LT() handle the hold (momentary _ADJUST) and do the tap
+        // action by hand here. The case labels truncate identically to the
+        // stored keys, so they still match; we just ignore the broken tap
+        // keycode and call the action directly.
+        case LT(_ADJUST, CG_TOGG):
+            if (record->tap.count && record->event.pressed) {
+                // Mirror QK_MAGIC_TOGGLE_CTL_GUI exactly: toggle both Ctrl/GUI
+                // swap pairs (right follows left) and persist. Toggling only
+                // the left pair would desync the RCTL/RGUI home-row mods.
+                keymap_config.swap_lctl_lgui = !keymap_config.swap_lctl_lgui;
+                keymap_config.swap_rctl_rgui = keymap_config.swap_lctl_lgui;
+                eeconfig_update_keymap(&keymap_config);
+                return false;
+            }
+            return true;  // held → let QMK switch to _ADJUST
 #ifdef RGB_MATRIX_ENABLE
+        case LT(_ADJUST, RM_TOGG):
+            if (record->tap.count && record->event.pressed) {
+                rgb_matrix_toggle();  // persists to EEPROM, like RM_TOGG
+                return false;
+            }
+            return true;  // held → let QMK switch to _ADJUST
         // One-shot mode pickers on _ADJUST. Only act on press; rgb_matrix_mode
         // persists to EEPROM (QMK handles wear-leveling internally).
         case M_PLAIN:  if (record->event.pressed) rgb_matrix_mode(RGB_MATRIX_SOLID_COLOR);         return false;
@@ -364,9 +388,80 @@ static inline void paint_led(uint8_t led_min, uint8_t led_max, uint8_t led, uint
     }
 }
 
+#    ifdef OS_DETECTION_ENABLE
+// CG-swap toggle flash: blink every LED 3x when the Control/GUI swap flips —
+// white entering swapped (Mac) mode, green leaving it. Edge-detected on
+// synced_cg_swap so both halves flash together (master updates it locally,
+// slave via the USER_OS_SYNC RPC). Replaces the old OS-detection red warning,
+// which broke when KEYBOARD_SHARED_EP changed the USB descriptors and made
+// detected_host_os() mis-fingerprint macOS — see NOTES.md.
+#        define CG_FLASH_BLINKS    3
+#        define CG_FLASH_ON_MS     120
+#        define CG_FLASH_OFF_MS    120
+#        define CG_FLASH_PERIOD_MS (CG_FLASH_ON_MS + CG_FLASH_OFF_MS)
+#        define CG_FLASH_TOTAL_MS  (CG_FLASH_BLINKS * CG_FLASH_PERIOD_MS)
+// Suppress flashes for this long after boot: an all-LEDs-white blink coinciding
+// with TFT power-on can brown out the display's init sequence (peak RGB draw).
+#        define CG_FLASH_BOOT_GRACE_MS 3000
+// White lights all 3 channels, so at full (0xFF) it draws ~3x the green flash
+// and browns out the TFT. Cap it so total per-LED draw stays under the
+// (proven-safe) green flash: 3 * 0x50 = 0xF0 < 0xFF.
+#        define CG_FLASH_WHITE_LEVEL 0x50
+static uint32_t cg_flash_start  = 0;
+static bool     cg_flash_active = false;
+static bool     cg_flash_white  = false;  // true = white (swapped/Mac), false = green
+#    endif
+
 // Each LED is gated independently so the slice [led_min, led_max) on either
 // half only paints the LEDs it actually owns.
 bool rgb_matrix_indicators_advanced_user(uint8_t led_min, uint8_t led_max) {
+#    ifdef OS_DETECTION_ENABLE
+    // Arm the flash on a swap change. During the boot grace window we keep
+    // prev_cg in lockstep with the current state so neither the persisted
+    // initial value nor the slave's first sync from the master can trigger a
+    // flash while the TFT is still powering on.
+    {
+        static bool prev_cg = false;
+        const bool  cur_cg  = synced_cg_swap;
+        if (timer_read32() < CG_FLASH_BOOT_GRACE_MS) {
+            prev_cg = cur_cg;
+        } else if (cur_cg != prev_cg) {
+            prev_cg         = cur_cg;
+            cg_flash_white  = cur_cg;        // white = entering swap/Mac, green = leaving
+            cg_flash_start  = timer_read32();
+            cg_flash_active = true;
+        }
+    }
+    if (cg_flash_active) {
+        const uint32_t elapsed = timer_elapsed32(cg_flash_start);
+        if (elapsed >= CG_FLASH_TOTAL_MS) {
+            cg_flash_active = false;
+        } else {
+            // Only the top row blinks. Flashing the whole board — even
+            // current-capped — still browned out the TFT; 12 LEDs (6 per half,
+            // from g_led_config: left 25-30, right 56-61) stays within budget.
+            static const uint8_t cg_flash_leds[] = {
+                25, 26, 27, 28, 29, 30,  // left-half top row
+                56, 57, 58, 59, 60, 61,  // right-half top row
+            };
+            const bool on = (elapsed % CG_FLASH_PERIOD_MS) < CG_FLASH_ON_MS;
+            uint8_t r = 0, g = 0, b = 0;
+            if (on) {
+                if (cg_flash_white) {
+                    r = g = b = CG_FLASH_WHITE_LEVEL;  // dim white (current-capped)
+                } else {
+                    g = 0xFF;                          // green
+                }
+            }
+            // Off-phase paints the row black against the live effect, so the row
+            // blinks; the rest of the board keeps animating.
+            for (size_t i = 0; i < ARRAY_SIZE(cg_flash_leds); i++) {
+                paint_led(led_min, led_max, cg_flash_leds[i], r, g, b);
+            }
+            return false;  // flash owns the frame; non-row LEDs show the base effect
+        }
+    }
+#    endif
     // QMK's `mod_config()` applies the CG swap BEFORE the mod is registered
     // (see quantum/keycode_config.c), so get_mods() returns post-swap bits.
     // That means in mac mode, MOD_MASK_CTRL is set when host sees Ctrl held
@@ -613,16 +708,6 @@ bool rgb_matrix_indicators_advanced_user(uint8_t led_min, uint8_t led_max) {
         }
     }
 
-#    ifdef OS_DETECTION_ENABLE
-    // CG_TOGG: bright red when host is macOS but swap is off (i.e. user forgot
-    // to enable mac mode). synced_* are populated on master and pushed to slave
-    // via the USER_OS_SYNC split RPC, so both halves render identically.
-    if (LED_CG_TOGG >= led_min && LED_CG_TOGG < led_max) {
-        if (synced_host_os == OS_MACOS && !macos_mode()) {
-            rgb_matrix_set_color(LED_CG_TOGG, RGB_RED);
-        }
-    }
-#    endif
     // Caps Lock / Caps Word on the TD key. Painted last so it overrides any
     // held-mod tint at the same LED (matters because ; is RGUI and shares
     // LED 54). Caps Lock wins over Caps Word if both somehow on.
@@ -651,6 +736,28 @@ bool rgb_matrix_indicators_advanced_user(uint8_t led_min, uint8_t led_max) {
 static float scroll_accumulated_h = 0;
 static float scroll_accumulated_v = 0;
 
+// _NAV flick gestures: a quick directional swipe on the trackpad fires a macOS
+// Mission Control / Spaces action.
+//   up    → Mission Control   (Ctrl+Up)
+//   down  → dismiss it        (Esc)
+//   left  → previous Space    (Ctrl+Left)
+//   right → next Space        (Ctrl+Right)
+//
+// We accumulate trackpad deltas while the finger is moving; once the
+// dominant-axis displacement crosses NAV_FLICK_THRESHOLD we fire once and lock
+// until the finger lifts (motion idles for NAV_FLICK_IDLE_MS), so one swipe =
+// one action. Ctrl combos go through tap_code16 so they bypass the CG_TOGG swap
+// and reach the host as a *real* Ctrl — Mission Control / Spaces are Ctrl
+// shortcuts, not Cmd (see "Gotchas" in NOTES.md). Trackpad y is positive
+// downward, matching the drag-scroll convention above.
+#define NAV_FLICK_THRESHOLD 80   // accumulated counts before a flick fires (tune to taste)
+#define NAV_FLICK_IDLE_MS   150  // no-motion gap that ends a stroke
+
+static int16_t  nav_flick_ax = 0;
+static int16_t  nav_flick_ay = 0;
+static uint16_t nav_flick_last_motion = 0;
+static bool     nav_flick_fired = false;
+
 report_mouse_t pointing_device_task_combined_user(report_mouse_t left_report, report_mouse_t right_report) {
     if (IS_LAYER_ON(_MOUSE)) {
         scroll_accumulated_h +=  (float)right_report.x / SCROLL_DIVISOR_H;
@@ -662,6 +769,47 @@ report_mouse_t pointing_device_task_combined_user(report_mouse_t left_report, re
         scroll_accumulated_h -= (mouse_hv_report_t)scroll_accumulated_h;
         scroll_accumulated_v -= (mouse_hv_report_t)scroll_accumulated_v;
 
+        right_report.x = 0;
+        right_report.y = 0;
+    } else if (IS_LAYER_ON(_NAV)) {
+        const int16_t dx = right_report.x;
+        const int16_t dy = right_report.y;
+
+        if (dx != 0 || dy != 0) {
+            // A gap longer than the idle window means the previous swipe ended
+            // (finger lifted) — start a fresh stroke.
+            if (timer_elapsed(nav_flick_last_motion) > NAV_FLICK_IDLE_MS) {
+                nav_flick_ax    = 0;
+                nav_flick_ay    = 0;
+                nav_flick_fired = false;
+            }
+            nav_flick_last_motion = timer_read();
+            nav_flick_ax += dx;
+            nav_flick_ay += dy;
+
+            if (!nav_flick_fired) {
+                const int16_t mag_x = nav_flick_ax < 0 ? -nav_flick_ax : nav_flick_ax;
+                const int16_t mag_y = nav_flick_ay < 0 ? -nav_flick_ay : nav_flick_ay;
+                if (mag_x >= NAV_FLICK_THRESHOLD || mag_y >= NAV_FLICK_THRESHOLD) {
+                    if (mag_y >= mag_x) {
+                        if (nav_flick_ay < 0) {
+                            tap_code16(LCTL(KC_UP));     // flick up → Mission Control
+                        } else {
+                            tap_code(KC_ESC);            // flick down → dismiss
+                        }
+                    } else {
+                        if (nav_flick_ax < 0) {
+                            tap_code16(LCTL(KC_RIGHT));  // flick left → next Space
+                        } else {
+                            tap_code16(LCTL(KC_LEFT));   // flick right → previous Space
+                        }
+                    }
+                    nav_flick_fired = true;
+                }
+            }
+        }
+
+        // Never let _NAV trackpad motion move the cursor or wake _AUTO_MOUSE.
         right_report.x = 0;
         right_report.y = 0;
     }
@@ -692,12 +840,21 @@ bool encoder_update_user(uint8_t index, bool clockwise) {
                     tap_code(MS_WHLU);
                 }
                 break;
+#ifdef RGB_MATRIX_ENABLE
+            case _ADJUST:
+                // Matrix hue (right encoder does brightness on this layer)
+                if (clockwise) {
+                    rgb_matrix_increase_hue();
+                } else {
+                    rgb_matrix_decrease_hue();
+                }
+                break;
+#endif
             case _MEDIA:
             case _QWERTY:
             case _NUM:
             case _SYM:
             case _FUN:
-            case _ADJUST:
             case _NAV:
             default:
                 // Undo / Redo
