@@ -17,3 +17,4 @@
 
 // Split sync of OS detection (master is the only side that sees USB traffic).
 #define SPLIT_TRANSACTION_IDS_USER USER_OS_SYNC
+

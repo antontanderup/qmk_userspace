@@ -14,6 +14,10 @@
 void splitkb_logo_sparkle(void);
 #endif
 
+#ifdef RAW_ENABLE
+#    include "raw_hid.h"
+#endif
+
 // LED indices, derived from g_led_config in users/halcyon_modules/splitkb/halcyon.c.
 // CG_TOGG key (matrix [8][2], k8C — right-half thumb cluster).
 #define LED_CG_TOGG        40
@@ -102,6 +106,56 @@ enum layers {
     _ADJUST,
     _AUTO_MOUSE,
 };
+
+#ifdef RAW_ENABLE
+// Companion-app protocol (see companion-app/ for the macOS side). The keyboard
+// pushes a compact state packet whenever the active layer changes, and replies
+// to an explicit request so the app can sync immediately after it launches
+// (when no layer change is pending). Raw HID only exists on the half with USB,
+// so everything here is master-only — the slave's raw_hid_send is a no-op and
+// we guard it anyway.
+//
+//   Packet (kb -> host), 32 bytes, zero-padded:
+//     [0] HLC_HID_MAGIC   [1] HLC_HID_MSG_STATE
+//     [2] highest active layer   [3] mac mode (CG swap)   [4] caps word   [5] caps lock
+//   Request (host -> kb): [0] HLC_HID_MAGIC  [1] HLC_HID_MSG_REQ
+#    define HLC_HID_MAGIC     0xAB
+#    define HLC_HID_MSG_STATE 0x10
+#    define HLC_HID_MSG_REQ   0x01
+// raw_hid_send requires the full endpoint-sized buffer (RAW_EPSIZE == 32, from
+// tmk_core/protocol/usb_descriptor.h — not pulled in by raw_hid.h, so we name
+// it locally to stay decoupled from that header).
+#    define HLC_HID_REPORT_SIZE 32
+
+// `layer` is passed in explicitly because layer_state_set_user runs BEFORE the
+// global layer_state is updated — reading the global there would report the
+// previous layer (overlay shows one change behind). Callers compute it from the
+// authoritative source they have (the incoming `state`, or the live global).
+static void hlc_hid_send_state(uint8_t layer) {
+    if (!is_keyboard_master()) {
+        return;
+    }
+    uint8_t buf[HLC_HID_REPORT_SIZE] = {0};
+    buf[0] = HLC_HID_MAGIC;
+    buf[1] = HLC_HID_MSG_STATE;
+    buf[2] = layer;
+    buf[3] = macos_mode() ? 1 : 0;
+#    ifdef OS_DETECTION_ENABLE
+    buf[4] = synced_caps_word ? 1 : 0;       // split-synced; master-only otherwise
+#    else
+    buf[4] = is_caps_word_on() ? 1 : 0;
+#    endif
+    buf[5] = host_keyboard_led_state().caps_lock ? 1 : 0;
+    raw_hid_send(buf, HLC_HID_REPORT_SIZE);
+}
+
+void raw_hid_receive(uint8_t *data, uint8_t length) {
+    if (length >= 2 && data[0] == HLC_HID_MAGIC && data[1] == HLC_HID_MSG_REQ) {
+        // Live request → the global layer_state is authoritative here.
+        hlc_hid_send_state(get_highest_layer(layer_state | default_layer_state));
+    }
+}
+#endif
 
 // Aliases for readability
 #define QWERTY   DF(_QWERTY)
@@ -852,6 +906,11 @@ layer_state_t layer_state_set_user(layer_state_t state) {
         scroll_accumulated_h = 0;
         scroll_accumulated_v = 0;
     }
+#ifdef RAW_ENABLE
+    // Tell the companion app the active layer changed. Use the incoming `state`
+    // (the global layer_state isn't updated until after this returns).
+    hlc_hid_send_state(get_highest_layer(state | default_layer_state));
+#endif
     return state;
 }
 #endif

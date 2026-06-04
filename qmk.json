@@ -16,6 +16,14 @@
                 "HLC_CIRQUE_TRACKPAD": "1",
                 "TARGET": "kyria_right_trackpad"
             }
+        ],
+        [
+            "splitkb/halcyon/kyria/rev4",
+            "anton_hlc",
+            {
+                "HLC_NONE": "1",
+                "TARGET": "kyria_left_none"
+            }
         ]
     ]
 }

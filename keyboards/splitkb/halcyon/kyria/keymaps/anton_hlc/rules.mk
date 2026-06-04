@@ -2,6 +2,9 @@ ENCODER_MAP_ENABLE   = no
 TAP_DANCE_ENABLE     = yes
 CAPS_WORD_ENABLE     = yes
 OS_DETECTION_ENABLE  = yes
+# Raw HID: push the active layer (+ mac/caps state) to the macOS companion app
+# (companion-app/) so it can show a contextual layer cheat-sheet on screen.
+RAW_ENABLE           = yes
 # Needed so the Apple Globe key (Consumer page) can be held as a modifier
 # for chords like Globe+E, Globe+F, etc.
 KEYBOARD_SHARED_EP   = yes

@@ -402,6 +402,32 @@ Mod-row icon at slot 2 swaps ⌃ ↔ ⌘ depending on swap state; slot 0 swaps
 between ⌘ (or ◆ outlined when not swapped) and ⌃. All driven by
 `synced_cg_swap`.
 
+## Raw HID → macOS companion app
+
+`RAW_ENABLE = yes`. The keymap pushes a compact state packet to a host app
+(`~/Development/keyboardstuff/companion-app/`, a Swift menu-bar agent) which
+shows an on-screen cheat-sheet of the active layer — hold `_NUM` and the numpad
++ adjacent symbols pop up, etc.
+
+- `hlc_hid_send_state()` builds a 32-byte report: `[0]=0xAB magic`,
+  `[1]=0x10 (state) / 0x01 (request)`, `[2]=highest layer`, `[3]=mac mode`,
+  `[4]=caps word`, `[5]=caps lock`. **Master-only** (`is_keyboard_master()`
+  guard) — raw HID only exists on the half with USB; slave's `raw_hid_send` is
+  a no-op.
+- Sent from `layer_state_set_user` (on every layer change) and from
+  `raw_hid_receive` (the app sends a `0x01` request at launch so it can sync
+  before the next layer change).
+- **`RAW_EPSIZE` is not pulled in by `raw_hid.h`** (it lives in
+  `tmk_core/protocol/usb_descriptor.h`). We use a local `HLC_HID_REPORT_SIZE 32`
+  to avoid depending on that header — `raw_hid_send` still requires the full
+  endpoint-sized buffer.
+- Mac VID/PID for matching: `0x8D1D` / `0x7FCE`, vendor usage page `0xFF60`
+  usage `0x61` (no Input Monitoring permission needed).
+- The app's layer art (`companion-app/Sources/LayerPeek/Layers.swift`) is a
+  hand-transcription of the keymaps here — **the one thing that can drift**.
+  Update it when you re-map a layer.
+- `RAW_ENABLE` restructures the USB descriptors, so **re-flash both halves**.
+
 ## Files at a glance
 
 - `keymap.c` — layers, custom keycodes, tap dance, encoder, drag scroll, OS sync, LED indicator.
