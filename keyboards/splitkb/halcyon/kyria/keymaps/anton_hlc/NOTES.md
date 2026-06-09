@@ -73,7 +73,7 @@ tap the letter):
 - `⌘Space` goes through `tap_code16` to dodge the CG_TOGG swap (a keymap `⌘`
   becomes `⌃` in mac mode — same footgun as the window layer). Assumes Spotlight
   is on `⌘Space` (not remapped to Alfred/Raycast).
-- Timing lives in `SPOTLIGHT_OPEN_MS` (200) and `SPOTLIGHT_RESOLVE_MS` (250). If a
+- Timing lives in `SPOTLIGHT_OPEN_MS` (250) and `SPOTLIGHT_RESOLVE_MS` (250). If a
   launch occasionally fires Enter before Spotlight resolves the hit, raise the
   resolve delay. The `wait_ms` calls block the matrix for ~450 ms per launch —
   fine for a deliberate app-jump.
@@ -446,11 +446,18 @@ flexibility (`tap_code16` for modifier combos, multi-tap per detent).
 | Left  (idx 0) | `_ADJUST` | `rgb_matrix_increase_hue` / `_decrease_hue` |
 | Left  (idx 0) | other | `Cmd+Z` / `Cmd+Shift+Z` (undo/redo) |
 | Right (idx 2) | `_WINDOW` | window resize — Rectangle Larger/Smaller (`⌃⌥=` / `⌃⌥-`) |
+| Right (idx 2) | `_NAV` | tab/editor switch — `⌘⌥→` / `⌘⌥←` (in-order in Firefox, Safari & VS Code) via `tap_code16` (bypasses CG swap) |
 | Right (idx 2) | `_ADJUST` | `rgb_matrix_increase_val` / `_decrease_val` |
 | Right (idx 2) | other | scroll 5 lines (`Up×5` / `Down×5`) |
 
 Slots 1 and 3 are the inactive Halcyon-module encoder positions (we only have
 the 2 soldered).
+
+**Resolution.** The soldered encoders are 4 pulses/detent, but the board's
+keyboard.json defaults `ENCODER_RESOLUTION` to 2, which fires `encoder_update_user`
+**twice per detent** (skips a tab, double-scrolls, etc.). `config.h` overrides it
+to **4** (`#undef` + `#define`) for all builds — both boards have identical
+encoders. If you ever see one-detent-fires-twice again, this is the knob.
 
 ## Sparkle on QWERTY icon
 

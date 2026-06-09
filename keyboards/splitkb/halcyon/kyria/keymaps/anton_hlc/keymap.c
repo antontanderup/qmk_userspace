@@ -390,7 +390,7 @@ void housekeeping_task_user(void) {
 // survives the CG_TOGG swap (a keymap ⌘ would become ⌃ in mac mode). The delays
 // give Spotlight time to open and to resolve the top hit before Enter; bump them
 // if a launch occasionally misses. Assumes Spotlight is on ⌘Space.
-#define SPOTLIGHT_OPEN_MS    200
+#define SPOTLIGHT_OPEN_MS    250
 #define SPOTLIGHT_RESOLVE_MS 250
 static void app_launch(const char *query) {
     tap_code16(LGUI(KC_SPACE));
@@ -1056,12 +1056,23 @@ bool encoder_update_user(uint8_t index, bool clockwise) {
                 }
                 break;
 #endif
+            case _NAV:
+                // Tab / editor switching — Cmd+Opt+→ / ←. This is the in-order
+                // "next/previous tab" in Firefox, Safari AND VS Code, and steps
+                // cleanly one tab per detent (unlike Ctrl+Tab, which is an MRU
+                // hold-overlay in both apps). tap_code16 emits a literal Cmd so
+                // the CG_TOGG swap doesn't rewrite it.
+                if (clockwise) {
+                    tap_code16(LGUI(LALT(KC_RIGHT)));  // next tab
+                } else {
+                    tap_code16(LGUI(LALT(KC_LEFT)));   // previous tab
+                }
+                break;
             case _MOUSE:
             case _QWERTY:
             case _NUM:
             case _SYM:
             case _FUN:
-            case _NAV:
             default:
                 // Scroll 5 lines
                 if (clockwise) {
