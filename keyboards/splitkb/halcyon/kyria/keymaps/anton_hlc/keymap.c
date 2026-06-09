@@ -99,7 +99,7 @@ enum layers {
     _QWERTY = 0,
     _NAV,
     _MOUSE,
-    _MEDIA,
+    _WINDOW,
     _NUM,
     _SYM,
     _FUN,
@@ -176,6 +176,11 @@ void raw_hid_receive(uint8_t *data, uint8_t length) {
 // outside mac mode it sends Ctrl+grave (VS Code terminal toggle on Win).
 #define MAC_CYCLE LCTL(KC_GRAVE)
 
+// Lock the Mac screen: Ctrl+Cmd+Q. Both modifiers are required, so the CG_TOGG
+// swap is harmless here — it only exchanges which physical bit is Ctrl vs Cmd,
+// and both are sent either way, so the host always sees Ctrl+Cmd+Q.
+#define MAC_LOCK LCTL(LGUI(KC_Q))
+
 // EMOJI is a custom keycode below — branches on macos_mode: Globe+E on Mac
 // (Sonoma+ picker), Win+. otherwise (Windows 10+ system picker).
 
@@ -198,6 +203,16 @@ enum custom_keycodes {
     M_JELLY,    // JELLYBEAN_RAINDROPS
     M_HUEBR,    // HUE_BREATHING
     M_FLOW,     // PIXEL_FLOW
+    // Window management → Rectangle (macOS). All emitted via tap_code16 in
+    // process_record_user so the literal Ctrl survives the CG_TOGG swap (a plain
+    // keymap entry would become Cmd+Opt in mac mode and miss Rectangle entirely).
+    WM_LHALF, WM_RHALF, WM_THALF, WM_BHALF,        // halves
+    WM_3FST, WM_3FST2, WM_3LST2, WM_3LST,          // first-⅓, first-⅔, last-⅔, last-⅓
+    WM_6TL, WM_6TC, WM_6TR, WM_6BL, WM_6BC, WM_6BR, // sixths (⅓w × ½h) — 2×3 grid
+    WM_MAX, WM_CENTER,                             // maximize, center
+    // App launchers (on _NAV) — drive Spotlight: ⌘Space → type name → Enter.
+    // No host-side launcher needed. See app_launch() and NOTES.md.
+    APP_CODE, APP_FF, APP_TERM, APP_SIM,
 };
 
 // Tap dance: 1 tap = CAPS_WORD, 2 taps = CAPS_LOCK
@@ -225,10 +240,10 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
  * Base Layer: QWERTY
  */
     [_QWERTY] = LAYOUT_split_3x6_5_hlc(
-     _______, KC_Q,               KC_W,               KC_E,               KC_R,               KC_T,                                                                    KC_Y, KC_U,               KC_I,               KC_O,               KC_P,                  KC_LEFT_BRACKET,
+     MAC_LOCK, KC_Q,              KC_W,               KC_E,               KC_R,               KC_T,                                                                    KC_Y, KC_U,               KC_I,               KC_O,               KC_P,                  KC_LEFT_BRACKET,
      _______, MT(MOD_LGUI, KC_A), MT(MOD_LALT, KC_S), MT(MOD_LCTL, KC_D), MT(MOD_LSFT, KC_F), KC_G,                                                                    KC_H, MT(MOD_RSFT, KC_J), MT(MOD_RCTL, KC_K), MT(MOD_LALT, KC_L), MT(MOD_RGUI, KC_SCLN), KC_QUOTE,
      AP_GLOBE, MT(MOD_LCTL, KC_Z), KC_X,            KC_C,               KC_V,               KC_B, EMOJI, KC_F13,        MS_BTN1, MS_BTN2,                            KC_N, KC_M,               KC_COMM,            KC_DOT,             KC_SLSH,               AP_GLOBE,
-                                                     _______, LT(_ADJUST, RM_TOGG), LT(_MEDIA, KC_ESC), LT(_NAV, KC_SPACE), LT(_MOUSE, KC_TAB),     LT(_SYM, KC_ENTER), LT(_NUM, KC_BACKSPACE), LT(_FUN, KC_DELETE), LT(_ADJUST, CG_TOGG), _______,
+                                                     _______, LT(_ADJUST, RM_TOGG), LT(_WINDOW, KC_ESC), LT(_NAV, KC_SPACE), LT(_MOUSE, KC_TAB),     LT(_SYM, KC_ENTER), LT(_NUM, KC_BACKSPACE), LT(_FUN, KC_DELETE), LT(_ADJUST, CG_TOGG), _______,
      KC_MUTE, KC_NO, KC_NO, KC_NO, KC_NO,                                                                                                                              KC_MUTE, KC_NO, KC_NO, KC_NO, KC_NO
     ),
 
@@ -236,9 +251,9 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
  * Nav Layer: Navigation
  */
     [_NAV] = LAYOUT_split_3x6_5_hlc(
-     _______, _______, _______, _______, _______, _______,                                     KC_REDO, KC_PASTE, KC_COPY, KC_CUT,  KC_UNDO,   KC_MCTL,
-     _______, _______, _______, _______, _______, _______,                                     KC_LEFT, KC_DOWN,  KC_UP,   KC_RGHT, TD(TD_CAPS_WORD_LOCK), _______,
-     _______, _______, _______, _______, _______, _______, _______, _______, _______, _______, KC_HOME, KC_PGDN,  KC_PGUP, KC_END,  KC_INSERT, _______,
+     _______, _______, _______, _______, _______, APP_TERM,                                    KC_REDO, KC_PASTE, KC_COPY, KC_CUT,  KC_UNDO,   KC_MCTL,
+     _______, _______, APP_SIM, _______, APP_FF,  _______,                                     KC_LEFT, KC_DOWN,  KC_UP,   KC_RGHT, TD(TD_CAPS_WORD_LOCK), _______,
+     _______, _______, _______, APP_CODE, _______, _______, _______, _______, _______, _______, KC_HOME, KC_PGDN,  KC_PGUP, KC_END,  KC_INSERT, _______,
                                 _______, _______, _______, _______, _______, _______, _______, _______, MAC_CYCLE, _______,
      _______, _______, _______, _______, _______,                                                                _______, _______, _______, _______, _______
     ),
@@ -255,13 +270,19 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
     ),
 
 /*
- * Media Layer: Media controls
+ * Window Layer: macOS window management (Rectangle). Held via the left thumb,
+ * so both hands are free:
+ *   Left  hand = sixths (⅓w × ½h), a 2×3 grid mirroring the screen, + center on D.
+ *   Right hand = halves on the home-row arrows (←↓↑→), thirds across the top row
+ *                (first-⅓ · first-⅔ · last-⅔ · last-⅓), maximize on Y.
+ * Right encoder resizes (larger/smaller). All actions bypass the CG_TOGG swap —
+ * see the WM_* handlers in process_record_user.
  */
-    [_MEDIA] = LAYOUT_split_3x6_5_hlc(
-     _______, _______, _______, _______, _______, _______,                                       _______,             _______,           _______,         _______,             _______, _______,
-     _______, _______, _______, _______, _______, _______,                                       KC_MEDIA_PREV_TRACK, KC_AUDIO_VOL_DOWN, KC_AUDIO_VOL_UP, KC_MEDIA_NEXT_TRACK, _______, _______,
-     _______, _______, _______, _______, _______, _______, _______, _______, _______, _______,   _______,             _______,           _______,         _______,             _______, _______,
-                                _______, _______, _______, _______, _______, KC_MEDIA_STOP, KC_MEDIA_PLAY_PAUSE, KC_AUDIO_MUTE, _______, _______,
+    [_WINDOW] = LAYOUT_split_3x6_5_hlc(
+     _______, _______, WM_6TL,    WM_6TC,  WM_6TR,  _______,                                      WM_MAX,   WM_3FST,  WM_3FST2, WM_3LST2, WM_3LST, _______,
+     _______, _______, _______,   WM_CENTER, _______, _______,                                    WM_LHALF, WM_BHALF, WM_THALF, WM_RHALF, _______, _______,
+     _______, _______, WM_6BL,    WM_6BC,  WM_6BR,  _______, _______, _______, _______, _______,  _______,  _______,  _______,  _______,  _______, _______,
+                                _______, _______, _______, _______, _______, _______, _______, _______, _______, _______,
      _______, _______, _______, _______, _______,                                                                _______, _______, _______, _______, _______
     ),
 
@@ -364,6 +385,21 @@ void housekeeping_task_user(void) {
 }
 #endif
 
+// App-launch macro: open Spotlight, type the app's name, Enter to launch/focus —
+// no host-side launcher needed. ⌘Space goes through tap_code16 so the literal Cmd
+// survives the CG_TOGG swap (a keymap ⌘ would become ⌃ in mac mode). The delays
+// give Spotlight time to open and to resolve the top hit before Enter; bump them
+// if a launch occasionally misses. Assumes Spotlight is on ⌘Space.
+#define SPOTLIGHT_OPEN_MS    200
+#define SPOTLIGHT_RESOLVE_MS 250
+static void app_launch(const char *query) {
+    tap_code16(LGUI(KC_SPACE));
+    wait_ms(SPOTLIGHT_OPEN_MS);
+    send_string(query);
+    wait_ms(SPOTLIGHT_RESOLVE_MS);
+    tap_code(KC_ENTER);
+}
+
 bool process_record_user(uint16_t keycode, keyrecord_t *record) {
     if (record->event.pressed) {
 #ifdef HLC_TFT_DISPLAY
@@ -418,6 +454,34 @@ bool process_record_user(uint16_t keycode, keyrecord_t *record) {
                 return false;
             }
             return true;  // held → let QMK switch to _ADJUST
+        // Window management → Rectangle. Routed through tap_code16 so the literal
+        // Ctrl reaches the host even in mac mode — the CG_TOGG swap would otherwise
+        // turn Ctrl+Opt into Cmd+Opt and miss Rectangle (and Cmd+Opt+← is a
+        // Firefox tab switch). Halves/thirds/maximize/center use Rectangle's stock
+        // defaults; the sixths use ⌃⌥⇧ combos you assign in Rectangle (they ship
+        // with no default shortcut) — see NOTES.md for the exact list.
+        case WM_LHALF:  if (record->event.pressed) tap_code16(LCTL(LALT(KC_LEFT)));        return false;
+        case WM_RHALF:  if (record->event.pressed) tap_code16(LCTL(LALT(KC_RIGHT)));       return false;
+        case WM_THALF:  if (record->event.pressed) tap_code16(LCTL(LALT(KC_UP)));          return false;
+        case WM_BHALF:  if (record->event.pressed) tap_code16(LCTL(LALT(KC_DOWN)));        return false;
+        case WM_3FST:   if (record->event.pressed) tap_code16(LCTL(LALT(KC_D)));           return false;
+        case WM_3FST2:  if (record->event.pressed) tap_code16(LCTL(LALT(KC_E)));           return false;
+        case WM_3LST2:  if (record->event.pressed) tap_code16(LCTL(LALT(KC_T)));           return false;
+        case WM_3LST:   if (record->event.pressed) tap_code16(LCTL(LALT(KC_G)));           return false;
+        case WM_MAX:    if (record->event.pressed) tap_code16(LCTL(LALT(KC_ENT)));         return false;
+        case WM_CENTER: if (record->event.pressed) tap_code16(LCTL(LALT(KC_C)));           return false;
+        case WM_6TL:    if (record->event.pressed) tap_code16(LCTL(LALT(LSFT(KC_U))));     return false;
+        case WM_6TC:    if (record->event.pressed) tap_code16(LCTL(LALT(LSFT(KC_I))));     return false;
+        case WM_6TR:    if (record->event.pressed) tap_code16(LCTL(LALT(LSFT(KC_O))));     return false;
+        case WM_6BL:    if (record->event.pressed) tap_code16(LCTL(LALT(LSFT(KC_J))));     return false;
+        case WM_6BC:    if (record->event.pressed) tap_code16(LCTL(LALT(LSFT(KC_K))));     return false;
+        case WM_6BR:    if (record->event.pressed) tap_code16(LCTL(LALT(LSFT(KC_L))));     return false;
+        // App launchers (Spotlight). Lowercase = exactly what gets typed into
+        // Spotlight; the top hit is launched/focused on Enter.
+        case APP_CODE:  if (record->event.pressed) app_launch("code");      return false;
+        case APP_FF:    if (record->event.pressed) app_launch("firefox");   return false;
+        case APP_TERM:  if (record->event.pressed) app_launch("terminal");  return false;
+        case APP_SIM:   if (record->event.pressed) app_launch("simulator"); return false;
 #ifdef RGB_MATRIX_ENABLE
         case LT(_ADJUST, RM_TOGG):
             if (record->tap.count && record->event.pressed) {
@@ -674,20 +738,31 @@ bool rgb_matrix_indicators_advanced_user(uint8_t led_min, uint8_t led_max) {
         paint_led(led_min, led_max, 48, rgb_nav.r, rgb_nav.g, rgb_nav.b);  // RM_PREV
     }
 
-    // _MEDIA: full chaos. Each bound key cycles through every hue at full
-    // saturation, with a prime-offset phase so all 7 LEDs show different
-    // colors at any given moment. ~3.8s full cycle (256 hues * 15ms tick).
-    if (IS_LAYER_ON(_MEDIA)) {
-        static const uint8_t media_leds[] = {
-            50, 51, 52, 53,  // PREV VOL- VOL+ NEXT
-            37, 38, 39,      // STOP PLAY/PAUSE MUTE (right thumbs)
+    // _WINDOW: Rectangle tiling map. Left hand is a 2×3 grid of sixths (orange)
+    // laid out like the screen, with Center on D (green). Right hand: halves on
+    // the home-row arrows (cyan), thirds across the top row (blue — the two-thirds
+    // keys brighter since they're the most-used split), Maximize on Y (white).
+    if (IS_LAYER_ON(_WINDOW)) {
+        static const uint8_t sixth_leds[] = {
+            28, 27, 26,  // top sixths    L C R  (W E R)
+            16, 15, 14,  // bottom sixths L C R  (X C V)
         };
-        const uint8_t base_hue = (uint8_t)(timer_read32() / 15);
-        for (size_t i = 0; i < ARRAY_SIZE(media_leds); i++) {
-            HSV hsv = { .h = (uint8_t)(base_hue + i * 37), .s = 0xFF, .v = 0xE0 };
-            RGB rgb = hsv_to_rgb(hsv);
-            paint_led(led_min, led_max, media_leds[i], rgb.r, rgb.g, rgb.b);
+        for (size_t i = 0; i < ARRAY_SIZE(sixth_leds); i++) {
+            paint_led(led_min, led_max, sixth_leds[i], 0xFF, 0x55, 0x00);
         }
+        paint_led(led_min, led_max, 21, 0x20, 0xC0, 0x40);  // D — Center (green)
+
+        static const uint8_t half_leds[] = { 50, 51, 52, 53 };  // ← ↓ ↑ → = L B T R half
+        for (size_t i = 0; i < ARRAY_SIZE(half_leds); i++) {
+            paint_led(led_min, led_max, half_leds[i], 0x10, 0xC0, 0xC0);
+        }
+
+        paint_led(led_min, led_max, 57, 0x20, 0x40, 0xC0);  // U — first third
+        paint_led(led_min, led_max, 58, 0x50, 0x80, 0xFF);  // I — first two-thirds
+        paint_led(led_min, led_max, 59, 0x50, 0x80, 0xFF);  // O — last two-thirds
+        paint_led(led_min, led_max, 60, 0x20, 0x40, 0xC0);  // P — last third
+
+        paint_led(led_min, led_max, 56, 0xC0, 0xC0, 0xC0);  // Y — Maximize (white)
     }
 
     // _MOUSE: ocean green on the cursor + click keys (the only parts of the
@@ -733,6 +808,12 @@ bool rgb_matrix_indicators_advanced_user(uint8_t led_min, uint8_t led_max) {
         // them visually.
         paint_led(led_min, led_max, 61, 0x60, 0xB0, 0xFF);  // KC_MCTL
         paint_led(led_min, led_max, 40, 0x60, 0xB0, 0xFF);  // MAC_CYCLE (CG_TOGG slot)
+
+        // App-launch keys (left hand) — painted in each app's brand color.
+        paint_led(led_min, led_max, 25, 0x18, 0xC0, 0x28);  // T — Terminal (phosphor green)
+        paint_led(led_min, led_max, 22, 0x90, 0x90, 0x90);  // S — Simulator (aluminium grey)
+        paint_led(led_min, led_max, 20, 0xFF, 0x45, 0x08);  // F — Firefox (orange)
+        paint_led(led_min, led_max, 15, 0x10, 0x66, 0xC8);  // C — VS Code (blue)
     }
 
     // _FUN: three tiers of red on the left hand. F1-F9 primary (brightest,
@@ -939,7 +1020,7 @@ bool encoder_update_user(uint8_t index, bool clockwise) {
                 }
                 break;
 #endif
-            case _MEDIA:
+            case _WINDOW:
             case _QWERTY:
             case _NUM:
             case _SYM:
@@ -956,12 +1037,13 @@ bool encoder_update_user(uint8_t index, bool clockwise) {
     } else if (index == 2) {
         // RIGHT soldered encoder
         switch (get_highest_layer(layer_state | default_layer_state)) {
-            case _MEDIA:
-                // Volume control
+            case _WINDOW:
+                // Resize the focused window: Rectangle Make Larger / Smaller.
+                // tap_code16 bypasses the CG_TOGG swap so real Ctrl reaches the host.
                 if (clockwise) {
-                    tap_code(KC_VOLU);
+                    tap_code16(LCTL(LALT(KC_EQUAL)));   // larger
                 } else {
-                    tap_code(KC_VOLD);
+                    tap_code16(LCTL(LALT(KC_MINUS)));   // smaller
                 }
                 break;
 #ifdef RGB_MATRIX_ENABLE

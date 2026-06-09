@@ -18,7 +18,7 @@ Quick-orient notes for future-me. The user-facing description lives in
 | 0 | `_QWERTY` | base |
 | 1 | `_NAV` | `LT(_NAV, Space)` left thumb |
 | 2 | `_MOUSE` | `LT(_MOUSE, Tab)` left thumb |
-| 3 | `_MEDIA` | `LT(_MEDIA, Esc)` left thumb |
+| 3 | `_WINDOW` | `LT(_WINDOW, Esc)` left thumb. macOS window tiling (Rectangle). |
 | 4 | `_NUM` | `LT(_NUM, Bspc)` right thumb |
 | 5 | `_SYM` | `LT(_SYM, Enter)` right thumb |
 | 6 | `_FUN` | `LT(_FUN, Del)` right thumb |
@@ -51,6 +51,34 @@ enum custom_keycodes { AP_GLOBE = SAFE_RANGE };
   the LGUI bit reaches the host as the Windows key). The "was mac at press
   time" decision is cached in a static so the release path tears down
   whatever the press registered, even if CG_TOGG flips mid-hold.
+- **`WM_*`** — macOS window-management keycodes (Rectangle) on the `_WINDOW`
+  layer. Emitted via `tap_code16` to bypass the CG_TOGG swap. See the Window
+  management section below.
+
+## App launchers (`APP_*` on `_NAV`)
+
+Spotlight-driven, host-setup-free. Each `APP_*` keycode runs `app_launch()`:
+`tap_code16(LGUI(KC_SPACE))` → `wait_ms` → `send_string("name")` → `wait_ms` →
+`tap_code(KC_ENTER)`. So it opens Spotlight, types the app name, and launches the
+top hit. Bound on the `_NAV` left hand by letter mnemonic (hold left-thumb Space,
+tap the letter):
+
+| Key | Keycode | Types | LED (brand) |
+|-----|---------|-------|-------------|
+| C | `APP_CODE` | `code`      | blue (LED 15) |
+| F | `APP_FF`   | `firefox`   | orange (LED 20) |
+| T | `APP_TERM` | `terminal`  | green (LED 25) |
+| S | `APP_SIM`  | `simulator` | grey (LED 22) |
+
+- `⌘Space` goes through `tap_code16` to dodge the CG_TOGG swap (a keymap `⌘`
+  becomes `⌃` in mac mode — same footgun as the window layer). Assumes Spotlight
+  is on `⌘Space` (not remapped to Alfred/Raycast).
+- Timing lives in `SPOTLIGHT_OPEN_MS` (200) and `SPOTLIGHT_RESOLVE_MS` (250). If a
+  launch occasionally fires Enter before Spotlight resolves the hit, raise the
+  resolve delay. The `wait_ms` calls block the matrix for ~450 ms per launch —
+  fine for a deliberate app-jump.
+- To add an app: new `APP_*` keycode, a `case` calling `app_launch("query")`, a
+  free `_NAV` key, an LED, and a label in the LayerPeek generator.
 
 ## LT() taps with Quantum keycodes (CG_TOGG / RM_TOGG)
 
@@ -213,12 +241,13 @@ adjust key.
   the active mode — possible follow-up if exact enum constants get pinned
   down. LED 54 (RM_NEXT) is also LED_CAPS_WORD_LOCK; the caps lock/word
   indicator paints later, so it correctly overrides the amber when active.
-- `_MEDIA`: chaotic animated rainbow. Each of the 7 bound keys (PREV/VOL-/
-  VOL+/NEXT on LEDs 50–53, STOP/PLAY/MUTE on LEDs 37–39) cycles through all
-  256 hues at full saturation, V=0xE0. Phase offset is `i * 37` (prime,
-  coprime with 256) so all LEDs show distinct colors at any moment. Cycle
-  speed: 15ms per hue step → ~3.8s full revolution. Driven by `timer_read32`
-  and QMK's `hsv_to_rgb()`.
+- `_WINDOW`: Rectangle tiling map (see the Window management section below).
+  Left hand is a 2×3 grid of **sixths** in orange `(0xFF, 0x55, 0x00)` — top
+  sixths on LEDs 28/27/26 (W E R), bottom on 16/15/14 (X C V) — laid out like
+  the screen, with **Center** on D (LED 21) green. Right hand: **halves** on the
+  home-row arrows (LEDs 50–53) cyan; **thirds** across the top row (LEDs 57–60)
+  blue, with the two-thirds keys (58/59) brighter since they're the most-used
+  split; **Maximize** on Y (LED 56) white. Static colors — no animation.
 - `_MOUSE`: single-tier ocean green `(0x10, 0xC0, 0x80)` on the cursor keys
   (MS_LEFT/DOWN/UP/RGHT at LEDs 50–53) and the right-thumb click cluster
   (MS_BTN1/BTN3/BTN2 at LEDs 37–39). No gradient — the layer is mostly
@@ -231,7 +260,9 @@ adjust key.
   blue `(0x60, 0xB0, 0xFF)` separately so Mission Control reads as a distinct
   system key, not a fourth gradient step. The TD caps key's secondary purple
   is overridden red/blue when caps lock or caps word is on, since that
-  indicator paints later.
+  indicator paints later. The **left** hand carries the `APP_*` launcher keys,
+  each painted in its app's brand color (see the App launchers section): VS Code
+  blue (15), Firefox orange (20), Terminal green (25), Simulator grey (22).
 - `_FUN`: three tiers of red, all pure (G=B=0). Only R varies — primary F1-F9
   `(0xFF, 0, 0)` full, secondary F10-F12 `(0x18, 0, 0)` ~9%, tertiary system
   keys (PrtSc/ScrLk/Pause/App) `(0x06, 0, 0)` ~2% (barely-on glow). Any non-zero G or B drifts the hue
@@ -356,6 +387,46 @@ Spaces action.
 - y is positive *downward* (matches the drag-scroll convention above): flick
   up = negative accumulated y.
 
+## Window management (`_WINDOW` → Rectangle)
+
+Held via the left thumb (`LT(_WINDOW, KC_ESC)`), so both hands are free. Sends
+macOS [Rectangle](https://rectangleapp.com/) shortcuts. Layout:
+
+- **Left hand = sixths** (⅓ width × ½ height), a 2×3 grid mirroring the screen:
+  `W E R` = top L/C/R sixth, `X C V` = bottom L/C/R. **Center** window on `D`.
+- **Right hand**: halves on the home-row arrows (`H J K L` = left/bottom/top/right
+  half), thirds across the top row (`U I O P` = first-⅓ / first-⅔ / last-⅔ /
+  last-⅓), **Maximize** on `Y`.
+- **Right encoder**: Make Larger / Smaller.
+
+**CG_TOGG swap bypass — the important footgun.** Rectangle listens on `Ctrl+Opt`,
+but the user runs mac mode (`swap_lctl_lgui` on), under which QMK's `mod_config`
+rewrites a keymap-array `LCTL(...)` to `LGUI` *before sending* — turning
+`Ctrl+Opt+←` into `Cmd+Opt+←` (a Firefox tab switch, not a window snap). So every
+action is a **custom keycode** (`WM_*`) handled in `process_record_user` via
+`tap_code16`, which emits the literal mods and skips the swap. Same reasoning as
+the `_NAV` flick gestures and the `tap_code16` gotcha at the bottom of this file.
+Do **not** move these into the keymap array.
+
+**Rectangle shortcut map.** Halves/thirds/maximize/center/resize use Rectangle's
+stock defaults. The **sixths ship with no default shortcut**, so they must be
+assigned in Rectangle → Settings to match what the firmware sends:
+
+| Action | Firmware sends | Stock default? |
+|--------|---------------|----------------|
+| Left / Right / Top / Bottom Half | `⌃⌥` ← / → / ↑ / ↓ | yes |
+| First Third / Last Third | `⌃⌥` D / G | yes |
+| First Two-Thirds / Last Two-Thirds | `⌃⌥` E / T | yes |
+| Maximize | `⌃⌥↵` | yes |
+| Center | `⌃⌥C` | yes |
+| Make Larger / Smaller (encoder) | `⌃⌥=` / `⌃⌥-` | yes |
+| Top sixths L / C / R | `⌃⌥⇧` U / I / O | **no — assign** |
+| Bottom sixths L / C / R | `⌃⌥⇧` J / K / L | **no — assign** |
+
+The six `⌃⌥⇧` combos are arbitrary — chosen to mirror Rectangle's quarter keys
+(U/I/J/K) plus Shift, and to avoid colliding with its defaults. If you rebind a
+sixth in Rectangle, update the matching `WM_6*` `tap_code16` in keymap.c.
+
 ## Auto mouse layer
 
 `POINTING_DEVICE_AUTO_MOUSE_ENABLE` + `AUTO_MOUSE_DEFAULT_LAYER = 8` in
@@ -374,7 +445,7 @@ flexibility (`tap_code16` for modifier combos, multi-tap per detent).
 | Left  (idx 0) | `_MOUSE`, `_AUTO_MOUSE` | `MS_WHLU/D` |
 | Left  (idx 0) | `_ADJUST` | `rgb_matrix_increase_hue` / `_decrease_hue` |
 | Left  (idx 0) | other | `Cmd+Z` / `Cmd+Shift+Z` (undo/redo) |
-| Right (idx 2) | `_MEDIA` | volume |
+| Right (idx 2) | `_WINDOW` | window resize — Rectangle Larger/Smaller (`⌃⌥=` / `⌃⌥-`) |
 | Right (idx 2) | `_ADJUST` | `rgb_matrix_increase_val` / `_decrease_val` |
 | Right (idx 2) | other | scroll 5 lines (`Up×5` / `Down×5`) |
 
