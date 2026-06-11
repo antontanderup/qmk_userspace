@@ -56,11 +56,13 @@ typedef struct {
     uint8_t os;          // os_variant_t
     uint8_t cg_swap;     // 0/1
     uint8_t caps_word;   // 0/1 — caps word is master-only; QMK doesn't split-sync it
+    uint8_t jiggle;      // 0/1 — mouse jiggler on; synced so the toggle LED is right on both halves
 } user_sync_t;
 
 static volatile os_variant_t synced_host_os   = OS_UNSURE;
 static volatile bool         synced_cg_swap   = false;
 static volatile bool         synced_caps_word = false;
+static volatile bool         synced_jiggle    = false;
 
 static void user_os_sync_slave_handler(uint8_t in_size, const void *in_data,
                                        uint8_t out_size, void *out_data) {
@@ -69,6 +71,7 @@ static void user_os_sync_slave_handler(uint8_t in_size, const void *in_data,
         synced_host_os   = (os_variant_t)p->os;
         synced_cg_swap   = p->cg_swap != 0;
         synced_caps_word = p->caps_word != 0;
+        synced_jiggle    = p->jiggle != 0;
     }
 }
 
@@ -106,6 +109,15 @@ enum layers {
     _ADJUST,
     _AUTO_MOUSE,
 };
+
+// Mouse jiggler. Toggled by MS_JIGL on _MOUSE; once on it runs on every layer
+// (the point is keeping the Mac awake while AFK). A tiny cursor nudge is injected
+// into the pointing-device report every MOUSE_JIGGLE_INTERVAL_MS, flipping
+// direction each time so there's no net drift. The flag is split-synced (see
+// USER_OS_SYNC) so the toggle key's LED reads right on either half.
+#define MOUSE_JIGGLE_INTERVAL_MS 5000
+#define MOUSE_JIGGLE_DISTANCE    10
+static bool jiggle_on = false;
 
 #ifdef RAW_ENABLE
 // Companion-app protocol (see companion-app/ for the macOS side). The keyboard
@@ -213,6 +225,7 @@ enum custom_keycodes {
     // App launchers (on _NAV) — drive Spotlight: ⌘Space → type name → Enter.
     // No host-side launcher needed. See app_launch() and NOTES.md.
     APP_CODE, APP_FF, APP_TERM, APP_SIM,
+    MS_JIGL,    // mouse jiggler toggle (on _MOUSE)
 };
 
 // Tap dance: 1 tap = CAPS_WORD, 2 taps = CAPS_LOCK
@@ -251,9 +264,9 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
  * Nav Layer: Navigation
  */
     [_NAV] = LAYOUT_split_3x6_5_hlc(
-     _______, _______, _______, _______, _______, APP_TERM,                                    KC_REDO, KC_PASTE, KC_COPY, KC_CUT,  KC_UNDO,   KC_MCTL,
-     _______, _______, APP_SIM, _______, APP_FF,  _______,                                     KC_LEFT, KC_DOWN,  KC_UP,   KC_RGHT, TD(TD_CAPS_WORD_LOCK), _______,
-     _______, _______, _______, APP_CODE, _______, _______, _______, _______, _______, _______, KC_HOME, KC_PGDN,  KC_PGUP, KC_END,  KC_INSERT, _______,
+     _______, _______, _______, APP_SIM, _______, APP_TERM,                                    KC_REDO, KC_PASTE, KC_COPY, KC_CUT,  KC_UNDO,   KC_MCTL,
+     _______, _______, _______, _______, _______, _______,                                     KC_LEFT, KC_DOWN,  KC_UP,   KC_RGHT, TD(TD_CAPS_WORD_LOCK), _______,
+     _______, _______, _______, APP_CODE, _______, APP_FF,  _______, _______, _______, _______, KC_HOME, KC_PGDN,  KC_PGUP, KC_END,  KC_INSERT, _______,
                                 _______, _______, _______, _______, _______, _______, _______, _______, MAC_CYCLE, _______,
      _______, _______, _______, _______, _______,                                                                _______, _______, _______, _______, _______
     ),
@@ -263,7 +276,7 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
  */
     [_MOUSE] = LAYOUT_split_3x6_5_hlc(
      _______, _______, _______, _______, _______, _______,                                       KC_AGAIN,    KC_PASTE,   KC_COPY,  KC_CUT,      KC_UNDO, _______,
-     _______, _______, _______, _______, _______, _______,                                       MS_LEFT,     MS_DOWN,    MS_UP,    MS_RGHT,     _______, _______,
+     _______, _______, _______, _______, _______, MS_JIGL,                                        MS_LEFT,     MS_DOWN,    MS_UP,    MS_RGHT,     _______, _______,
      _______, _______, _______, _______, _______, _______, _______, _______, _______, _______,   _______,     _______,    _______,  _______,     _______, _______,
                                 _______, _______, _______, _______, _______, MS_BTN1, MS_BTN3, MS_BTN2, _______, _______,
      _______, _______, _______, _______, _______,                                                                _______, _______, _______, _______, _______
@@ -364,19 +377,21 @@ void housekeeping_task_user(void) {
         .os        = (uint8_t)detected_host_os(),
         .cg_swap   = keymap_config.swap_lctl_lgui ? 1 : 0,
         .caps_word = is_caps_word_on() ? 1 : 0,
+        .jiggle    = jiggle_on ? 1 : 0,
     };
     // Always reflect locally — independent of split transport connectivity —
     // so master's indicator and TFT see the real state immediately.
     synced_host_os   = (os_variant_t)cur.os;
     synced_cg_swap   = cur.cg_swap != 0;
     synced_caps_word = cur.caps_word != 0;
+    synced_jiggle    = cur.jiggle != 0;
 
     if (!is_transport_connected()) {
         return;
     }
     static uint16_t last_sent_at = 0;
-    static user_sync_t last_sent = { .os = OS_UNSURE, .cg_swap = 0, .caps_word = 0 };
-    if (cur.os != last_sent.os || cur.cg_swap != last_sent.cg_swap || cur.caps_word != last_sent.caps_word || timer_elapsed(last_sent_at) > 1000) {
+    static user_sync_t last_sent = { .os = OS_UNSURE, .cg_swap = 0, .caps_word = 0, .jiggle = 0 };
+    if (cur.os != last_sent.os || cur.cg_swap != last_sent.cg_swap || cur.caps_word != last_sent.caps_word || cur.jiggle != last_sent.jiggle || timer_elapsed(last_sent_at) > 1000) {
         if (transaction_rpc_send(USER_OS_SYNC, sizeof(cur), &cur)) {
             last_sent = cur;
             last_sent_at = timer_read();
@@ -482,6 +497,7 @@ bool process_record_user(uint16_t keycode, keyrecord_t *record) {
         case APP_FF:    if (record->event.pressed) app_launch("firefox");   return false;
         case APP_TERM:  if (record->event.pressed) app_launch("terminal");  return false;
         case APP_SIM:   if (record->event.pressed) app_launch("simulator"); return false;
+        case MS_JIGL:   if (record->event.pressed) jiggle_on = !jiggle_on;  return false;
 #ifdef RGB_MATRIX_ENABLE
         case LT(_ADJUST, RM_TOGG):
             if (record->tap.count && record->event.pressed) {
@@ -587,6 +603,16 @@ bool rgb_matrix_indicators_advanced_user(uint8_t led_min, uint8_t led_max) {
         }
     }
 #    endif
+
+    // Mouse jiggler active state — split-synced so it reads right on either half.
+    // The idle hint paints on _MOUSE (below); the active animation paints globally
+    // near the end of this function, so it shows on every layer.
+#    ifdef OS_DETECTION_ENABLE
+    const bool jiggling = synced_jiggle;
+#    else
+    const bool jiggling = jiggle_on;
+#    endif
+
     // QMK's `mod_config()` applies the CG swap BEFORE the mod is registered
     // (see quantum/keycode_config.c), so get_mods() returns post-swap bits.
     // That means in mac mode, MOD_MASK_CTRL is set when host sees Ctrl held
@@ -775,6 +801,11 @@ bool rgb_matrix_indicators_advanced_user(uint8_t led_min, uint8_t led_max) {
         for (size_t i = 0; i < ARRAY_SIZE(mouse_leds); i++) {
             paint_led(led_min, led_max, mouse_leds[i], 0x10, 0xC0, 0x80);
         }
+        // Jiggler toggle idle hint (G, LED 19): dim grey so the key is findable.
+        // The active animation is painted globally (below), on every layer.
+        if (!jiggling) {
+            paint_led(led_min, led_max, 19, 0x20, 0x20, 0x20);
+        }
     }
 
     // _NAV: purple gradient on the right hand. Arrows primary (brightest,
@@ -809,10 +840,12 @@ bool rgb_matrix_indicators_advanced_user(uint8_t led_min, uint8_t led_max) {
         paint_led(led_min, led_max, 61, 0x60, 0xB0, 0xFF);  // KC_MCTL
         paint_led(led_min, led_max, 40, 0x60, 0xB0, 0xFF);  // MAC_CYCLE (CG_TOGG slot)
 
-        // App-launch keys (left hand) — painted in each app's brand color.
+        // App-launch keys (left hand) — painted in each app's brand color. Kept
+        // off the home row (A/S/D/F) so they don't shadow the home-row mods —
+        // otherwise Shift/Alt/etc. + arrow combos break on this layer.
         paint_led(led_min, led_max, 25, 0x18, 0xC0, 0x28);  // T — Terminal (phosphor green)
-        paint_led(led_min, led_max, 22, 0x90, 0x90, 0x90);  // S — Simulator (aluminium grey)
-        paint_led(led_min, led_max, 20, 0xFF, 0x45, 0x08);  // F — Firefox (orange)
+        paint_led(led_min, led_max, 27, 0x90, 0x90, 0x90);  // E — Simulator (aluminium grey)
+        paint_led(led_min, led_max, 13, 0xFF, 0x45, 0x08);  // B — Firefox (orange)
         paint_led(led_min, led_max, 15, 0x10, 0x66, 0xC8);  // C — VS Code (blue)
     }
 
@@ -882,6 +915,16 @@ bool rgb_matrix_indicators_advanced_user(uint8_t led_min, uint8_t led_max) {
                                  : (uint8_t)((uint32_t)(CAPS_PULSE_PERIOD_MS - phase) * 255 / half);
             paint_led(led_min, led_max, LED_CAPS_WORD_LOCK, v, v, v);
         }
+    }
+
+    // Mouse jiggler active indicator (G, LED 19) — shown on EVERY layer so you can
+    // always see it's running. Same fluid rainbow the old _MEDIA layer used: 256
+    // hues at full saturation, V=0xE0, ~15 ms/step (~3.8 s per revolution). Painted
+    // last so it overrides any layer tint that also lands on LED 19.
+    if (jiggling) {
+        const uint8_t hue = (uint8_t)(timer_read32() / 15);
+        const RGB     rgb = hsv_to_rgb((HSV){ hue, 0xFF, 0xE0 });
+        paint_led(led_min, led_max, 19, rgb.r, rgb.g, rgb.b);
     }
     return false;
 }
@@ -978,7 +1021,21 @@ report_mouse_t pointing_device_task_combined_user(report_mouse_t left_report, re
         right_report.x = 0;
         right_report.y = 0;
     }
-    return pointing_device_combine_reports(left_report, right_report);
+    report_mouse_t combined = pointing_device_combine_reports(left_report, right_report);
+
+    // Mouse jiggler: once enabled, nudge the cursor every interval, flipping
+    // direction each time so it returns to where it started (no net drift). Runs
+    // on every layer — the whole point is to keep the Mac awake while AFK.
+    if (jiggle_on) {
+        static uint32_t jiggle_last = 0;
+        static bool     jiggle_dir  = false;
+        if (timer_elapsed32(jiggle_last) > MOUSE_JIGGLE_INTERVAL_MS) {
+            jiggle_last = timer_read32();
+            jiggle_dir  = !jiggle_dir;
+            combined.x += jiggle_dir ? MOUSE_JIGGLE_DISTANCE : -MOUSE_JIGGLE_DISTANCE;
+        }
+    }
+    return combined;
 }
 
 // Clear partial scroll fractions when leaving _MOUSE so they don't leak across sessions.

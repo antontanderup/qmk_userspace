@@ -66,9 +66,14 @@ tap the letter):
 | Key | Keycode | Types | LED (brand) |
 |-----|---------|-------|-------------|
 | C | `APP_CODE` | `code`      | blue (LED 15) |
-| F | `APP_FF`   | `firefox`   | orange (LED 20) |
+| E | `APP_SIM`  | `simulator` | grey (LED 27) |
 | T | `APP_TERM` | `terminal`  | green (LED 25) |
-| S | `APP_SIM`  | `simulator` | grey (LED 22) |
+| B | `APP_FF`   | `firefox`   | orange (LED 13) |
+
+**Keep these off the home row (A/S/D/F).** Those positions are transparent on
+`_NAV` so the base-layer home-row mods fall through — that's what lets you hold
+Shift/Alt/Ctrl/Cmd + the right-hand arrows. Putting an app key there shadows the
+mod and breaks modifier+arrow combos. Hence `E`/`B` rather than `S`/`F`.
 
 - `⌘Space` goes through `tap_code16` to dodge the CG_TOGG swap (a keymap `⌘`
   becomes `⌃` in mac mode — same footgun as the window layer). Assumes Spotlight
@@ -251,7 +256,9 @@ adjust key.
 - `_MOUSE`: single-tier ocean green `(0x10, 0xC0, 0x80)` on the cursor keys
   (MS_LEFT/DOWN/UP/RGHT at LEDs 50–53) and the right-thumb click cluster
   (MS_BTN1/BTN3/BTN2 at LEDs 37–39). No gradient — the layer is mostly
-  transparent and these are the only bound keys.
+  transparent and these are the only bound keys. The jiggler toggle (G, LED 19)
+  also lives here — dim grey when idle; its active rainbow is painted globally
+  (every layer), not here (see Mouse jiggler).
 - `_NAV`: three tiers of purple on the right hand. Primary arrows + page-nav
   (LEFT/DOWN/UP/RGHT, HOME/PGDN/PGUP/END) `(0xA0, 0x60, 0xFF)` light/lavender
   (62% sat); secondary edit row + TD caps key (REDO/PASTE/COPY/CUT/UNDO,
@@ -262,7 +269,8 @@ adjust key.
   is overridden red/blue when caps lock or caps word is on, since that
   indicator paints later. The **left** hand carries the `APP_*` launcher keys,
   each painted in its app's brand color (see the App launchers section): VS Code
-  blue (15), Firefox orange (20), Terminal green (25), Simulator grey (22).
+  blue (15), Simulator grey (27), Terminal green (25), Firefox orange (13). They
+  sit off the home row so they don't shadow the home-row mods.
 - `_FUN`: three tiers of red, all pure (G=B=0). Only R varies — primary F1-F9
   `(0xFF, 0, 0)` full, secondary F10-F12 `(0x18, 0, 0)` ~9%, tertiary system
   keys (PrtSc/ScrLk/Pause/App) `(0x06, 0, 0)` ~2% (barely-on glow). Any non-zero G or B drifts the hue
@@ -426,6 +434,27 @@ assigned in Rectangle → Settings to match what the firmware sends:
 The six `⌃⌥⇧` combos are arbitrary — chosen to mirror Rectangle's quarter keys
 (U/I/J/K) plus Shift, and to avoid colliding with its defaults. If you rebind a
 sixth in Rectangle, update the matching `WM_6*` `tap_code16` in keymap.c.
+
+## Mouse jiggler (`MS_JIGL` on `_MOUSE`)
+
+A keep-awake toggle. `MS_JIGL` (on `_MOUSE`, the **G** key — inner index, *not* a
+home-row mod so it can't shadow one) flips a global `jiggle_on`. While on,
+`pointing_device_task_combined_user` adds a small cursor nudge to the combined
+report every `MOUSE_JIGGLE_INTERVAL_MS` (5 s), flipping direction each time
+(`±MOUSE_JIGGLE_DISTANCE`, 10 px) so there's no net drift. Runs on **every layer**
+once enabled — being on `_MOUSE` is only needed to *toggle* it.
+
+- Movement is injected in the combined pointing task, so it runs on the master
+  (same place drag-scroll/flicks run) — works regardless of which half has USB.
+- The flag is split-synced via `USER_OS_SYNC` (`jiggle` field) so the toggle key's
+  LED reads correctly even when the left half (which owns LED 19) is the slave.
+- **LED 19 (G)**: dim grey when idle (on `_MOUSE` only, so the toggle is
+  findable). While active it runs the old `_MEDIA` layer's fluid rainbow — 256
+  hues at full sat, V=0xE0, ~15 ms/step (~3.8 s/rev) — painted on **every** layer
+  (last in the indicator, so it overrides any layer tint that lands on LED 19) so
+  you can always see the jiggler is on.
+- Net-zero drift assumes the two nudges land symmetrically; if you ever see slow
+  creep, it's because a poll was dropped mid-cycle — harmless.
 
 ## Auto mouse layer
 
