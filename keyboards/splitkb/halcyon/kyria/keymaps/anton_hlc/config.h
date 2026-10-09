@@ -2,6 +2,11 @@
 
 #define POINTING_DEVICE_AUTO_MOUSE_ENABLE
 #define AUTO_MOUSE_DEFAULT_LAYER 8  // _AUTO_MOUSE
+// How long _AUTO_MOUSE lingers after the last trackpad motion / mouse-key press.
+// QMK default is 650 ms, which felt sticky — C/V/R stay as clicks too long after
+// you lift off the pad. Lower = snappier return to typing; too low and the layer
+// drops between a cursor move and the click you meant to make.
+#define AUTO_MOUSE_TIME 400
 
 // Hi-res scroll: declared in HID descriptor; honored fully by Linux/Wayland and
 // partially by Windows. macOS often ignores the Resolution Multiplier feature on

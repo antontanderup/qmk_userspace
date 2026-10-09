@@ -473,7 +473,8 @@ once enabled — being on `_MOUSE` is only needed to *toggle* it.
 ## Auto mouse layer
 
 `POINTING_DEVICE_AUTO_MOUSE_ENABLE` + `AUTO_MOUSE_DEFAULT_LAYER = 8` in
-config.h. **Must** call `set_auto_mouse_enable(true)` in
+config.h. `AUTO_MOUSE_TIME 400` (down from QMK's 650 ms default, which felt
+sticky) sets how long the layer lingers after the last motion or mouse-key press. **Must** call `set_auto_mouse_enable(true)` in
 `pointing_device_init_user` — the runtime flag defaults to off even with
 the define. `_AUTO_MOUSE` keymap is mostly transparent; right-thumb gets
 `MS_BTN1 / MS_BTN3 / MS_BTN2` for clicks while cursor is on trackpad.
@@ -571,7 +572,7 @@ shows an on-screen cheat-sheet of the active layer — hold `_NUM` and the numpa
 ## Files at a glance
 
 - `keymap.c` — layers, custom keycodes, tap dance, encoder, drag scroll, OS sync, LED indicator.
-- `config.h` — `POINTING_DEVICE_AUTO_MOUSE_ENABLE`, `AUTO_MOUSE_DEFAULT_LAYER 8`, hi-res scroll + extended wheel, OS detection tunables, `SPLIT_TRANSACTION_IDS_USER USER_OS_SYNC`.
+- `config.h` — `POINTING_DEVICE_AUTO_MOUSE_ENABLE`, `AUTO_MOUSE_DEFAULT_LAYER 8`, `AUTO_MOUSE_TIME 400`, hi-res scroll + extended wheel, OS detection tunables, `SPLIT_TRANSACTION_IDS_USER USER_OS_SYNC`.
 - `rules.mk` — toggles for `TAP_DANCE`, `CAPS_WORD`, `OS_DETECTION`, `KEYBOARD_SHARED_EP`, `USER_NAME := halcyon_modules`.
 - `readme.md` — user-facing description.
 - `NOTES.md` — this file.

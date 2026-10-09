@@ -49,7 +49,7 @@ Hardware quirks disabled (in `users/halcyon_modules/splitkb/hlc_cirque_trackpad/
 - Circular / edge scrolling off.
 
 Behavior in the keymap:
-- `POINTING_DEVICE_AUTO_MOUSE_ENABLE` + `AUTO_MOUSE_DEFAULT_LAYER = 8` — trackpad motion activates `_AUTO_MOUSE` (default timeout 650 ms).
+- `POINTING_DEVICE_AUTO_MOUSE_ENABLE` + `AUTO_MOUSE_DEFAULT_LAYER = 8` — trackpad motion activates `_AUTO_MOUSE` (timeout `AUTO_MOUSE_TIME` = 400 ms, down from the 650 ms default).
 - `set_auto_mouse_enable(true)` called from `pointing_device_init_user`, because the runtime flag defaults to off.
 - `pointing_device_task_combined_user` implements **drag-scroll on `_MOUSE`**: trackpad `x/y` is rewritten to `h/v` (with `y` inverted for natural-scroll feel). `x/y` is zeroed so auto-mouse can't fire and shadow `_MOUSE` with `_AUTO_MOUSE`.
 - Scroll speed is throttled with a `SCROLL_DIVISOR_H/V = 50` float accumulator. Higher divisor → slower. macOS often ignores the HID Resolution Multiplier feature for generic mice, so this stays even with `POINTING_DEVICE_HIRES_SCROLL_ENABLE` on.
