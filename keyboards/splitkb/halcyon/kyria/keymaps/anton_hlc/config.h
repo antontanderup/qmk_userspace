@@ -18,11 +18,14 @@
 // Split sync of OS detection (master is the only side that sees USB traffic).
 #define SPLIT_TRANSACTION_IDS_USER USER_OS_SYNC
 
-// Encoder resolution. The soldered encoders emit 4 quadrature pulses per detent,
-// but the board's keyboard.json defaults ENCODER_RESOLUTION to 2 — so QMK reads
-// one physical detent as two steps (skips a browser tab on _NAV, double-scrolls,
-// double-undos, etc.). Override to 4 so one detent = one step. Both boards use the
-// same encoders, so this applies to every build (no per-board difference).
+// Encoder resolution = quadrature pulses per detent. This DIFFERS PER BOARD:
+// Fancy's soldered encoders are 4 pulses/detent, Blackout's are 2. Get it wrong
+// and one detent either fires twice (resolution too low — skips a browser tab on
+// _NAV, double-scrolls, double-undos) or every other detent does nothing at all
+// (resolution too high). There is no ENCODER_RESOLUTIONS array in this build, so
+// this single scalar covers all 4 encoder slots — fine, because both halves of a
+// given board use the same encoders. The per-board value is passed in from
+// qmk.json as ENC_PPD (see rules.mk); it defaults to 4 for a bare compile.
 #undef ENCODER_RESOLUTION
-#define ENCODER_RESOLUTION 4
+#define ENCODER_RESOLUTION ENC_PPD
 

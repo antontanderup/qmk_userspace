@@ -83,6 +83,16 @@ The module uses **double-buffering through a QP surface**, not direct draws:
 Surface-only draws are cheap; the SPI flush is the expensive part, so partial
 redraws on the surface are fine.
 
+**Panel resync.** Surface diffing can't see panel-side corruption — if an SPI
+glitch lands a flush at the wrong panel location, the surface still believes
+the panel matches and never repaints it, so garbage sticks forever. Two
+defenses: `LCD_SPI_DIVISOR` is 4 (~31 MHz; divisor 0 used to clamp to 2 =
+~62.5 MHz, 4× the ST7789's rated write clock and the suspected glitch source),
+and every `HLC_TFT_RESYNC_INTERVAL_MS` (30 s) the housekeeping task pushes the
+**entire** framebuffer (`qp_surface_draw(..., true)`, ~20 ms, deferred while
+typing). `qp_surface_draw` early-outs when the surface isn't dirty even with
+`entire_surface` set, so the resync toggles corner pixel (0,0) to arm it.
+
 ## Backlight
 
 - PWM-driven via QMK's `backlight` feature (`BACKLIGHT_PIN = GP27`, PWMD5/Ch B).

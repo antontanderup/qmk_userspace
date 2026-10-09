@@ -10,7 +10,7 @@
 #include "graphics/icons/splitkb.qgf.h"
 #include "graphics/icons/open_with.qgf.h"
 #include "graphics/icons/mouse.qgf.h"
-#include "graphics/icons/music_note.qgf.h"
+#include "graphics/icons/window_tiles.qgf.h"
 #include "graphics/icons/calculate.qgf.h"
 #include "graphics/icons/data_object.qgf.h"
 #include "graphics/icons/functions.qgf.h"
@@ -40,7 +40,6 @@
 
 #define MOD_SLOT_Y      (LCD_HEIGHT - MOD_SLOT_H)    // 210
 #define MOD_SLOT_H      30
-#define MOD_ICON_SIZE   26
 
 #define HSV_ICON_DIM    0, 0, 130    // toned-down icon color for inactive state
 
@@ -160,11 +159,11 @@ static void draw_mods_row(uint8_t mods, bool macos_mode) {
         mod_icons[3] /*Shift*/,
     };
 
-    const int icon_y = MOD_SLOT_Y + (MOD_SLOT_H - MOD_ICON_SIZE) / 2;
-
     for (int i = 0; i < 4; i++) {
         bool active = (mods & masks[i]) != 0;
-        int  icon_x = slot_left[i] + (slot_width[i] - MOD_ICON_SIZE) / 2;
+        // Center on the image's real size — diamond_mod is 30x30, not MOD_ICON_SIZE.
+        int  icon_x = slot_left[i] + (slot_width[i] - icons[i]->width) / 2;
+        int  icon_y = MOD_SLOT_Y + (MOD_SLOT_H - icons[i]->height) / 2;
         int  x_left  = slot_left[i];
         int  x_right = slot_left[i] + slot_width[i] - 1;
         int  y_top   = MOD_SLOT_Y;
@@ -284,7 +283,7 @@ bool module_post_init_kb(void) {
     layer_icons[0] = qp_load_image_mem(gfx_splitkb);
     layer_icons[1] = qp_load_image_mem(gfx_open_with);
     layer_icons[2] = qp_load_image_mem(gfx_mouse);
-    layer_icons[3] = qp_load_image_mem(gfx_music_note);
+    layer_icons[3] = qp_load_image_mem(gfx_window_tiles);  // _WINDOW (was _MEDIA / music_note)
     layer_icons[4] = qp_load_image_mem(gfx_calculate);
     layer_icons[5] = qp_load_image_mem(gfx_data_object);
     layer_icons[6] = qp_load_image_mem(gfx_functions);
@@ -322,7 +321,25 @@ bool display_module_housekeeping_task_kb(bool second_display) {
 
     update_display();
 
-    qp_surface_draw(lcd_surface, lcd, 0, 0, 0);
+    // Surface diffing only re-sends regions whose framebuffer content changed;
+    // it can't see panel-side corruption (a glitched SPI window command lands
+    // pixels at the wrong panel location, and this board's power rail has a
+    // brownout history — see the keymap NOTES). Without a resync such garbage
+    // stays on screen forever, so periodically re-push the whole framebuffer.
+    // Deferred while the user is actively typing: the full-frame SPI transfer
+    // blocks the matrix for ~20 ms.
+    static uint32_t last_resync = 0;
+    bool full_resync = timer_elapsed32(last_resync) >= HLC_TFT_RESYNC_INTERVAL_MS && last_input_activity_elapsed() >= 250;
+    if (full_resync) {
+        last_resync = timer_read32();
+        // qp_surface_draw skips the transfer when the surface isn't dirty,
+        // even with entire_surface set — toggle one always-black corner pixel
+        // (rows 0–3 are outside every band) to arm it.
+        qp_setpixel(lcd_surface, 0, 0, HSV_WHITE);
+        qp_setpixel(lcd_surface, 0, 0, HSV_BLACK);
+    }
+
+    qp_surface_draw(lcd_surface, lcd, 0, 0, full_resync);
     qp_flush(lcd);
 
     return true;

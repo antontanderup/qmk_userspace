@@ -6,6 +6,7 @@
             "anton_hlc",
             {
                 "HLC_TFT_DISPLAY": "1",
+                "ENC_PPD": "2",
                 "TARGET": "kyria_left_tft"
             }
         ],
@@ -14,7 +15,8 @@
             "anton_hlc",
             {
                 "HLC_CIRQUE_TRACKPAD": "1",
-                "TARGET": "kyria_right_trackpad"
+                "ENC_PPD": "2",
+                "TARGET": "kyria_right_trackpad_blackout"
             }
         ],
         [
@@ -22,7 +24,17 @@
             "anton_hlc",
             {
                 "HLC_NONE": "1",
+                "ENC_PPD": "4",
                 "TARGET": "kyria_left_none"
+            }
+        ],
+        [
+            "splitkb/halcyon/kyria/rev4",
+            "anton_hlc",
+            {
+                "HLC_CIRQUE_TRACKPAD": "1",
+                "ENC_PPD": "4",
+                "TARGET": "kyria_right_trackpad_fancy"
             }
         ]
     ]

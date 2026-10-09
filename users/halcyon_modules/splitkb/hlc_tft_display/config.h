@@ -11,7 +11,11 @@
 #define LCD_RST_PIN GP26
 #define LCD_CS_PIN GP13
 #define LCD_DC_PIN GP16
-#define LCD_SPI_DIVISOR 0
+// Divisor 0 gets clamped to 2 by the SPI driver → ~62.5 MHz, 4x the ST7789's
+// rated write clock. That overclock intermittently corrupts window-set
+// commands, splattering flushed pixels (usually the big layer icon) at the
+// wrong panel location. 4 → ~31.25 MHz; bump to 8 (in-spec) if artifacts persist.
+#define LCD_SPI_DIVISOR 4
 #define LCD_SPI_MODE 3
 #define LCD_WIDTH 135
 #define LCD_HEIGHT 240
@@ -35,3 +39,8 @@
 
 // Timeout configuration
 #define QUANTUM_PAINTER_DISPLAY_TIMEOUT HLC_BACKLIGHT_TIMEOUT
+
+// How often the full framebuffer is re-pushed to the panel, repainting any
+// pixels a glitched SPI transfer left at the wrong location (the surface's
+// dirty tracking can't see panel-side corruption).
+#define HLC_TFT_RESYNC_INTERVAL_MS 30000

@@ -556,6 +556,16 @@ static bool     cg_flash_white  = false;  // true = white (swapped/Mac), false =
 // Each LED is gated independently so the slice [led_min, led_max) on either
 // half only paints the LEDs it actually owns.
 bool rgb_matrix_indicators_advanced_user(uint8_t led_min, uint8_t led_max) {
+    // Reserve the per-key LEDs for indicator highlights only. The animated
+    // effect runs on the underglow ("bottom") LEDs alone, so black out every
+    // keylight LED each frame before the indicators below repaint the keys that
+    // should be lit. This also overwrites any stale highlight from last frame.
+    // Underglow LEDs (LED_FLAG_UNDERGLOW) are left untouched so the effect shows.
+    for (uint8_t i = led_min; i < led_max; i++) {
+        if (g_led_config.flags[i] & LED_FLAG_KEYLIGHT) {
+            rgb_matrix_set_color(i, 0, 0, 0);
+        }
+    }
 #    ifdef OS_DETECTION_ENABLE
     // Arm the flash on a swap change. During the boot grace window we keep
     // prev_cg in lockstep with the current state so neither the persisted
@@ -594,12 +604,13 @@ bool rgb_matrix_indicators_advanced_user(uint8_t led_min, uint8_t led_max) {
                     g = 0xFF;                          // green
                 }
             }
-            // Off-phase paints the row black against the live effect, so the row
-            // blinks; the rest of the board keeps animating.
+            // Off-phase paints the row black, so the row blinks; the underglow
+            // keeps animating (per-key LEDs are reserved for highlights, so the
+            // rest of the keys stay dark — already blacked out above).
             for (size_t i = 0; i < ARRAY_SIZE(cg_flash_leds); i++) {
                 paint_led(led_min, led_max, cg_flash_leds[i], r, g, b);
             }
-            return false;  // flash owns the frame; non-row LEDs show the base effect
+            return false;  // flash owns the frame; underglow keeps the base effect
         }
     }
 #    endif
@@ -1054,6 +1065,37 @@ layer_state_t layer_state_set_user(layer_state_t state) {
 #endif
 
 #ifdef ENCODER_ENABLE
+// Scroll-encoder acceleration. ENCODER_RESOLUTION is 4 (one call per detent),
+// so the gap between calls is the detent cadence — tighter gap = faster spin.
+// Slow deliberate steps jump 1 line, a medium spin 5, a fast flick 10.
+// Lower these to make acceleration HARDER to trigger (more spins stay at 1 line);
+// raise them to make it kick in at gentler speeds. A gap below MED_MS = medium
+// (5 lines), below FAST_MS = fast (10 lines), otherwise slow (1 line).
+#define ENC_ACCEL_FAST_MS 40    // detents closer together than this = fast spin
+#define ENC_ACCEL_MED_MS  80    // detents closer together than this = medium spin
+#define ENC_SCROLL_FAST   10
+#define ENC_SCROLL_MED    5
+#define ENC_SCROLL_SLOW   1
+
+static uint8_t encoder_scroll_steps(bool clockwise) {
+    static uint32_t last_fire = 0;
+    static bool     last_cw   = false;
+
+    uint32_t gap = timer_elapsed32(last_fire);
+    last_fire = timer_read32();
+
+    // A direction reversal restarts at slow — momentum shouldn't carry across a
+    // flip, and the first detent of any fresh spin should be a fine 1-line nudge.
+    if (clockwise != last_cw) {
+        last_cw = clockwise;
+        return ENC_SCROLL_SLOW;
+    }
+
+    if (gap < ENC_ACCEL_FAST_MS) return ENC_SCROLL_FAST;
+    if (gap < ENC_ACCEL_MED_MS)  return ENC_SCROLL_MED;
+    return ENC_SCROLL_SLOW;
+}
+
 bool encoder_update_user(uint8_t index, bool clockwise) {
     if (index == 0) {
         // LEFT soldered encoder
@@ -1130,21 +1172,15 @@ bool encoder_update_user(uint8_t index, bool clockwise) {
             case _NUM:
             case _SYM:
             case _FUN:
-            default:
-                // Scroll 5 lines
-                if (clockwise) {
-                    tap_code(KC_DOWN);
-                    tap_code(KC_DOWN);
-                    tap_code(KC_DOWN);
-                    tap_code(KC_DOWN);
-                    tap_code(KC_DOWN);
-                } else {
-                    tap_code(KC_UP);
-                    tap_code(KC_UP);
-                    tap_code(KC_UP);
-                    tap_code(KC_UP);
-                    tap_code(KC_UP);
+            default: {
+                // Velocity-accelerated scroll: slow spin = 1 line, medium = 5,
+                // fast flick = 10. See encoder_scroll_steps above.
+                uint8_t steps = encoder_scroll_steps(clockwise);
+                uint8_t kc    = clockwise ? KC_DOWN : KC_UP;
+                for (uint8_t i = 0; i < steps; i++) {
+                    tap_code(kc);
                 }
+            }
         }
     }
     return false;

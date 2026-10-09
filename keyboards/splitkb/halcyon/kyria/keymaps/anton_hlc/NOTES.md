@@ -168,6 +168,20 @@ even when running on the slave (USB on right side).
 `rgb_matrix_indicators_advanced_user` paints three groups, each LED gated
 against `[led_min, led_max)` so either half only paints LEDs it owns.
 
+**Animation vs highlights split.** The animated RGB effect is reserved for the
+**underglow ("bottom") LEDs**; the **per-key LEDs are highlights only**. The
+indicator's first action is a loop that blacks out every LED with
+`LED_FLAG_KEYLIGHT` in `g_led_config.flags[]` (Kyria rev4: indices 6-30 left,
+37-61 right — the underglow LEDs 0-5/31-36 are flag `LED_FLAG_UNDERGLOW` and are
+left untouched). So the base effect only ever shows on the underglow; the
+indicator code below then repaints whichever keys should be lit. Blacking the
+keys every frame also clears last frame's stale highlights, so no per-key LED
+lingers after its indicator stops painting it. Consequence: any new per-key
+highlight Just Works, but a key with **no** indicator stays dark regardless of
+the active effect — that's intended. (The RGB effect still computes keylight
+colors that get overwritten; the flag isn't changed via `rgb_matrix_set_flags`,
+so toggling/cycling effects still behaves normally on the underglow.)
+
 **Held home-row mods** — all lit white. Painted first so caps overrides on
 conflict at LED 54.
 
@@ -477,16 +491,35 @@ flexibility (`tap_code16` for modifier combos, multi-tap per detent).
 | Right (idx 2) | `_WINDOW` | window resize — Rectangle Larger/Smaller (`⌃⌥=` / `⌃⌥-`) |
 | Right (idx 2) | `_NAV` | tab/editor switch — `⌘⌥→` / `⌘⌥←` (in-order in Firefox, Safari & VS Code) via `tap_code16` (bypasses CG swap) |
 | Right (idx 2) | `_ADJUST` | `rgb_matrix_increase_val` / `_decrease_val` |
-| Right (idx 2) | other | scroll 5 lines (`Up×5` / `Down×5`) |
+| Right (idx 2) | other | velocity-accelerated scroll — 1 / 5 / 10 lines by spin speed (`encoder_scroll_steps`) |
 
 Slots 1 and 3 are the inactive Halcyon-module encoder positions (we only have
 the 2 soldered).
 
-**Resolution.** The soldered encoders are 4 pulses/detent, but the board's
-keyboard.json defaults `ENCODER_RESOLUTION` to 2, which fires `encoder_update_user`
-**twice per detent** (skips a tab, double-scrolls, etc.). `config.h` overrides it
-to **4** (`#undef` + `#define`) for all builds — both boards have identical
-encoders. If you ever see one-detent-fires-twice again, this is the knob.
+**Resolution — differs per board.** `ENCODER_RESOLUTION` is how many quadrature
+pulses QMK counts per reported step, and the two boards are **not** the same:
+
+| Board | Pulses/detent | `ENC_PPD` |
+|-------|---------------|-----------|
+| Fancy    | 4 | `4` |
+| Blackout | 2 | `2` |
+
+Both halves of a given board match, so one scalar per build target covers all
+4 encoder slots (there is no `ENCODER_RESOLUTIONS` array in this build).
+
+Set it too **low** and one detent fires `encoder_update_user` twice (skips a tab,
+double-scrolls, double-undos). Set it too **high** and every *other* detent does
+nothing. If you see either symptom, this is the knob.
+
+The value is passed per build target from `qmk.json` as `ENC_PPD`; the keymap's
+`rules.mk` turns it into `-DENC_PPD=<n>` and `config.h` does `#undef` +
+`#define ENCODER_RESOLUTION ENC_PPD`. It defaults to 4 so a bare `qmk compile`
+without `-e` still builds.
+
+Because the value is per board and the right halves are otherwise identical, the
+**right-half firmware is no longer shared** — there are separate
+`kyria_right_trackpad_blackout` and `kyria_right_trackpad_fancy` targets. Don't
+cross-flash them; the keys and trackpad will work but the encoder will be wrong.
 
 ## Sparkle on QWERTY icon
 
